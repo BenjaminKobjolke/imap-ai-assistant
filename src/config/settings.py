@@ -57,6 +57,16 @@ class ConfigManager:
         return self._config.get("openai", {}).get("model", "gpt-4o")
     
     @property
+    def openai_max_tokens(self) -> int:
+        """Get OpenAI max tokens."""
+        return self._config.get("openai", {}).get("max_tokens", 100)
+    
+    @property
+    def openai_temperature(self) -> float:
+        """Get OpenAI temperature."""
+        return self._config.get("openai", {}).get("temperature", 0.3)
+    
+    @property
     def rtm_email(self) -> Optional[str]:
         """Get Remember the Milk email address."""
         return self._config.get("remember_the_milk", {}).get("email_address")
@@ -64,17 +74,17 @@ class ConfigManager:
     @property
     def target_folder(self) -> str:
         """Get target folder for processed emails."""
-        return self._config.get("processing", {}).get("target_folder", "@BKToDo")
+        return self._config.get("processing", {}).get("my_own_tasks", {}).get("target_folder", "@BKToDo")
     
     @property
     def subject_tag(self) -> str:
         """Get additional subject tag."""
-        return self._config.get("processing", {}).get("additional_subject_tag", "#BKToDo")
+        return self._config.get("processing", {}).get("my_own_tasks", {}).get("additional_subject_tag", "#BKToDo")
     
     @property
     def allowed_senders(self) -> List[str]:
         """Get list of allowed email senders."""
-        return self._config.get("processing", {}).get("allowed_senders", [])
+        return self._config.get("allowed_senders", [])
     
     @property
     def smtp_config(self) -> Dict:

@@ -1,8 +1,9 @@
 import logging
 import re
+import json
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Dict, Any
 from openai import OpenAI
 
 logger = logging.getLogger(__name__)
@@ -11,9 +12,11 @@ logger = logging.getLogger(__name__)
 class OpenAIClient:
     """OpenAI client for processing emails into RTM todo format."""
     
-    def __init__(self, api_key: str, model: str = "gpt-4o"):
+    def __init__(self, api_key: str, model: str = "gpt-4o", max_tokens: int = 100, temperature: float = 0.3):
         self.client = OpenAI(api_key=api_key)
         self.model = model
+        self.max_tokens = max_tokens
+        self.temperature = temperature
         self.system_prompt = ""
         self.user_prompt_template = ""
         self._load_prompts()
@@ -59,38 +62,51 @@ class OpenAIClient:
             )            
            
             print(f"User prompt: {user_prompt}")
-            # Call OpenAI API
+            # Call OpenAI API with JSON mode
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
                     {"role": "system", "content": self.system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                max_tokens=100,
-                temperature=0.3
+                max_tokens=self.max_tokens,
+                temperature=self.temperature,
+                response_format={"type": "json_object"}
             )
             
             # Extract response content
             if response.choices and response.choices[0].message and response.choices[0].message.content:
-                todo_text = response.choices[0].message.content.strip()
-                logger.info(f"OpenAI response: {todo_text}")
+                response_content = response.choices[0].message.content.strip()
+                logger.info(f"OpenAI response: {response_content}")
                 
-                # Validate and clean the response
-                validated_todo = self._validate_todo_format(todo_text)
-                if validated_todo:
-                    logger.info(f"Validated todo: {validated_todo}")
-                    return validated_todo
-                else:
-                    logger.warning(f"Invalid todo format from OpenAI: {todo_text}")
-                    # Return a fallback todo
-                    return self._create_fallback_todo(subject, first_line, sender)
+                try:
+                    # Parse JSON response
+                    json_response = json.loads(response_content)
+                    
+                    # Extract todo text from JSON (assuming it has a 'todo' field)
+                    # In the future, we can extract multiple fields as needed
+                    todo_text = json_response.get('todo', '')
+                    
+                    # Validate and clean the response
+                    validated_todo = self._validate_todo_format(todo_text)
+                    if validated_todo:
+                        logger.info(f"Validated todo: {validated_todo}")
+                        return validated_todo
+                    else:
+                        logger.warning(f"Invalid todo format from OpenAI: {todo_text}")
+                        # Return a fallback todo
+                        return self._create_fallback_todo(subject, first_line, body_excerpt)
+                        
+                except json.JSONDecodeError as e:
+                    logger.error(f"Failed to parse JSON response: {e}")
+                    return self._create_fallback_todo(subject, first_line, body_excerpt)
             else:
                 logger.error("No response content from OpenAI")
-                return self._create_fallback_todo(subject, first_line, sender)
+                return self._create_fallback_todo(subject, first_line, body_excerpt)
                 
         except Exception as e:
             logger.error(f"Error processing email with OpenAI: {e}")
-            return self._create_fallback_todo(subject, first_line, sender)
+            return self._create_fallback_todo(subject, first_line, body_excerpt)
     
     def _validate_todo_format(self, todo_text: str) -> Optional[str]:
         """Validate that the todo text follows RTM format: TODONAME !importance ^duedate"""

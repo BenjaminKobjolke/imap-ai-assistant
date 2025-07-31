@@ -45,8 +45,10 @@ class EmailProcessor:
             # Initialize OpenAI client
             api_key = self.config.openai_api_key
             model = self.config.openai_model
+            max_tokens = self.config.openai_max_tokens
+            temperature = self.config.openai_temperature
             if api_key:
-                self.openai_client = OpenAIClient(api_key, model)
+                self.openai_client = OpenAIClient(api_key, model, max_tokens, temperature)
             else:
                 logger.error("No OpenAI API key found")
                 return
