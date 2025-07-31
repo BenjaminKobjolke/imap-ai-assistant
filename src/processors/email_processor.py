@@ -47,8 +47,9 @@ class EmailProcessor:
             model = self.config.openai_model
             max_tokens = self.config.openai_max_tokens
             temperature = self.config.openai_temperature
+            other_people = self.config.get_other_people_names()
             if api_key:
-                self.openai_client = OpenAIClient(api_key, model, max_tokens, temperature)
+                self.openai_client = OpenAIClient(api_key, model, max_tokens, temperature, other_people)
             else:
                 logger.error("No OpenAI API key found")
                 return
@@ -130,19 +131,57 @@ class EmailProcessor:
             
             # Process with OpenAI (now with body excerpt for better sender context)
             logger.info("📨 About to call process_email_to_todo...")
-            todo_text = self.openai_client.process_email_to_todo(subject, first_line, body_excerpt)
-            logger.info(f"📨 process_email_to_todo completed, result: {todo_text}")
-            if not todo_text:
+            result = self.openai_client.process_email_to_todo(subject, first_line, body_excerpt)
+            if not result:
                 logger.error(f"Failed to generate todo for message {message_id}")
                 return False
+            
+            todo_text, assignee = result
+            logger.info(f"📨 process_email_to_todo completed, todo: {todo_text}, assignee: {assignee}")
+            
+            # Get processing rules based on assignee
+            processing_rules = self.config.get_processing_rules(assignee)
+            target_folder = processing_rules["target_folder"]
+            subject_tag = processing_rules["additional_subject_tag"]
+            assignee_email = processing_rules.get("email_address", "")
+            
+            # Forward email to assignee if not self
+            if assignee != "self" and assignee_email:
+                logger.info(f"Forwarding email to {assignee} at {assignee_email}")
+                
+                # Get sender's account to use for forwarding
+                sender_email_addr = self._extract_sender_email(email_message.from_address)
+                source_account_config = self.config.get_source_account_by_email(sender_email_addr)
+                
+                if source_account_config:
+                    # Create SMTP client using sender's account
+                    sender_smtp_config = {
+                        "server": source_account_config.get("server"),
+                        "port": 587,  # Standard SMTP port
+                        "use_tls": True,
+                        "username": source_account_config.get("username"),
+                        "password": source_account_config.get("password"),
+                        "from_email": source_account_config.get("email_address")
+                    }
+                    sender_smtp_client = SmtpClient(sender_smtp_config)
+                    
+                    forward_success = sender_smtp_client.forward_email(
+                        to_email=assignee_email,
+                        todo_text=todo_text,
+                        original_subject=subject,
+                        original_sender=email_message.from_address,
+                        original_body=body_excerpt
+                    )
+                    if not forward_success:
+                        logger.warning(f"Failed to forward email to {assignee}")
+                else:
+                    logger.warning(f"Could not find sender account config to forward email")
             
             # Send to Remember the Milk
             rtm_email = self.config.rtm_email
             if not rtm_email:
                 logger.error("RTM email address not configured")
                 return False
-                
-            subject_tag = self.config.subject_tag
             
             success = self.smtp_client.send_rtm_todo(
                 rtm_email=rtm_email,
@@ -161,18 +200,18 @@ class EmailProcessor:
                 logger.warning(f"Failed to mark message {message_id} as read")
             
             # NEW: Cross-account original email management
-            success = self._handle_original_email(email_message, subject)
+            success = self._handle_original_email(email_message, subject, target_folder)
             if not success:
                 logger.warning(f"Failed to handle original email for message {message_id}")
             
-            logger.info(f"Successfully processed message {message_id}: {todo_text}")
+            logger.info(f"Successfully processed message {message_id}: {todo_text} (assignee: {assignee})")
             return True
             
         except Exception as e:
             logger.error(f"Error processing single email {message_id}: {e}")
             return False
     
-    def _handle_original_email(self, email_message, subject: str) -> bool:
+    def _handle_original_email(self, email_message, subject: str, target_folder: str) -> bool:
         """Handle finding and moving original email in sender's account."""
         try:
             # Extract sender email address
@@ -198,8 +237,7 @@ class EmailProcessor:
                 return False
             
             try:
-                # Search and move original email
-                target_folder = self.config.target_folder
+                # Search and move original email using the target folder from processing rules
                 success = source_client.search_and_move_original_email(subject, target_folder)
                 
                 if success:

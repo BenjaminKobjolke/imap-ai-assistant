@@ -73,13 +73,35 @@ class ConfigManager:
     
     @property
     def target_folder(self) -> str:
-        """Get target folder for processed emails."""
+        """Get target folder for processed emails (default for my own tasks)."""
         return self._config.get("processing", {}).get("my_own_tasks", {}).get("target_folder", "@BKToDo")
     
     @property
     def subject_tag(self) -> str:
-        """Get additional subject tag."""
+        """Get additional subject tag (default for my own tasks)."""
         return self._config.get("processing", {}).get("my_own_tasks", {}).get("additional_subject_tag", "#BKToDo")
+    
+    def get_processing_rules(self, assignee: str = "self") -> Dict[str, str]:
+        """Get processing rules for a specific assignee."""
+        processing = self._config.get("processing", {})
+        
+        if assignee == "self" or assignee == "me":
+            rules = processing.get("my_own_tasks", {})
+        else:
+            # Check if this person exists in the others section
+            others = processing.get("others", {})
+            rules = others.get(assignee.lower(), processing.get("my_own_tasks", {}))
+        
+        return {
+            "target_folder": rules.get("target_folder", "@BKToDo"),
+            "additional_subject_tag": rules.get("additional_subject_tag", "#BKToDo"),
+            "email_address": rules.get("email_address", "")
+        }
+    
+    def get_other_people_names(self) -> List[str]:
+        """Get list of other people configured for task assignment."""
+        others = self._config.get("processing", {}).get("others", {})
+        return list(others.keys())
     
     @property
     def allowed_senders(self) -> List[str]:

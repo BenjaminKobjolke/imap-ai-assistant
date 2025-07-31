@@ -89,6 +89,53 @@ class SmtpClient:
             logger.error(f"Error sending RTM todo: {e}")
             return False
     
+    def forward_email(self, to_email: str, todo_text: str, original_subject: str, 
+                      original_sender: str, original_body: str = "") -> bool:
+        """Forward an email to an assignee with the todo text as the subject."""
+        try:
+            # Use todo text as the new subject
+            subject = todo_text
+            
+            # Remove first line from original body
+            if original_body:
+                body_lines_original = original_body.split('\n')
+                # Skip the first line
+                original_body_without_first = '\n'.join(body_lines_original[1:]) if len(body_lines_original) > 1 else ""
+            else:
+                original_body_without_first = ""
+            
+            # Create forwarded email body
+            body_lines = [
+                "This task has been assigned to you:",
+                "",
+                f"Task: {todo_text}",
+                "",
+                "--- Original Email ---",
+                f"From: {original_sender}",
+                f"Subject: {original_subject}",
+                "",
+                original_body_without_first if original_body_without_first else "(No body content)",
+                "",
+                "--- End of Original Email ---",
+                "",
+                "Forwarded by IMAP AI Assistant"
+            ]
+            body = "\n".join(body_lines)
+            
+            # Send the email
+            success = self.send_email(to_email, subject, body)
+            
+            if success:
+                logger.info(f"Email forwarded successfully to {to_email}")
+            else:
+                logger.error(f"Failed to forward email to {to_email}")
+            
+            return success
+            
+        except Exception as e:
+            logger.error(f"Error forwarding email: {e}")
+            return False
+    
     def test_connection(self) -> bool:
         """Test SMTP connection."""
         try:
