@@ -9,7 +9,7 @@ h11==0.16.0
 httpcore==1.0.9
 httpx==0.28.1
 idna==3.10
-imap-client-lib @ git+https://github.com/BenjaminKobjolke/imap_client_python.git@c6f1c69f09f570d5ffb74111de29d599f6fe2e74
+imap-client-lib @ git+https://github.com/BenjaminKobjolke/imap_client_python.git@b4c7d66b71fb00584c1a03cf48586974becaea7b
 IMAPClient==3.0.1
 jiter==0.10.0
 openai==1.97.1

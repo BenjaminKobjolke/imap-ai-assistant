@@ -144,38 +144,8 @@ class EmailProcessor:
             target_folder = processing_rules["target_folder"]
             subject_tag = processing_rules["additional_subject_tag"]
             assignee_email = processing_rules.get("email_address", "")
+            bcc_email = processing_rules.get("bcc", "")
             
-            # Forward email to assignee if not self
-            if assignee != "self" and assignee_email:
-                logger.info(f"Forwarding email to {assignee} at {assignee_email}")
-                
-                # Get sender's account to use for forwarding
-                sender_email_addr = self._extract_sender_email(email_message.from_address)
-                source_account_config = self.config.get_source_account_by_email(sender_email_addr)
-                
-                if source_account_config:
-                    # Create SMTP client using sender's account
-                    sender_smtp_config = {
-                        "server": source_account_config.get("server"),
-                        "port": 587,  # Standard SMTP port
-                        "use_tls": True,
-                        "username": source_account_config.get("username"),
-                        "password": source_account_config.get("password"),
-                        "from_email": source_account_config.get("email_address")
-                    }
-                    sender_smtp_client = SmtpClient(sender_smtp_config)
-                    
-                    forward_success = sender_smtp_client.forward_email(
-                        to_email=assignee_email,
-                        todo_text=todo_text,
-                        original_subject=subject,
-                        original_sender=email_message.from_address,
-                        original_body=body_excerpt
-                    )
-                    if not forward_success:
-                        logger.warning(f"Failed to forward email to {assignee}")
-                else:
-                    logger.warning(f"Could not find sender account config to forward email")
             
             # Send to Remember the Milk
             rtm_email = self.config.rtm_email
@@ -199,8 +169,8 @@ class EmailProcessor:
             if not self.imap_client.mark_message_as_read(message_id):
                 logger.warning(f"Failed to mark message {message_id} as read")
             
-            # NEW: Cross-account original email management
-            success = self._handle_original_email(email_message, subject, target_folder)
+            # NEW: Cross-account original email management (and forwarding if needed)
+            success = self._handle_original_email(email_message, subject, target_folder, assignee, assignee_email, todo_text, bcc_email)
             if not success:
                 logger.warning(f"Failed to handle original email for message {message_id}")
             
@@ -211,8 +181,9 @@ class EmailProcessor:
             logger.error(f"Error processing single email {message_id}: {e}")
             return False
     
-    def _handle_original_email(self, email_message, subject: str, target_folder: str) -> bool:
-        """Handle finding and moving original email in sender's account."""
+    def _handle_original_email(self, email_message, subject: str, target_folder: str, 
+                               assignee: str = "self", assignee_email: str = "", todo_text: str = "", bcc_email: str = "") -> bool:
+        """Handle finding and moving original email in sender's account, and forward if needed."""
         try:
             # Extract sender email address
             sender_email = self._extract_sender_email(email_message.from_address)
@@ -237,15 +208,63 @@ class EmailProcessor:
                 return False
             
             try:
-                # Search and move original email using the target folder from processing rules
-                success = source_client.search_and_move_original_email(subject, target_folder)
+                # First, find the original email using library methods directly  
+                original_subject = source_client._strip_subject_prefixes(subject)
+                logger.info(f"Looking for original email with subject: '{original_subject}'")
                 
-                if success:
-                    logger.info(f"Successfully handled original email in {source_account_config['name']}")
+                # Get all messages and search for matching subject
+                all_messages = source_client.client.get_all_messages()
+                matching_emails = []
+                
+                for message_id, email_message in all_messages:
+                    if hasattr(email_message, 'subject') and email_message.subject:
+                        message_subject = source_client._strip_subject_prefixes(email_message.subject)
+                        if (original_subject.lower() in message_subject.lower() or 
+                            message_subject.lower() in original_subject.lower()):
+                            matching_emails.append((message_id, email_message))
+                            if len(matching_emails) >= 5:  # Limit to 5 results
+                                break
+                
+                if matching_emails:
+                    original_message_id, original_email_message = matching_emails[0]
+                    logger.info(f"Found original email: {original_email_message.subject}")
+                    
+                    # Forward email to assignee if not self
+                    if assignee != "self" and assignee_email and todo_text:
+                        bcc_list = [bcc_email] if bcc_email else []
+                        logger.info(f"Forwarding original email to {assignee} at {assignee_email}" + 
+                                   (f" with BCC to {bcc_email}" if bcc_email else ""))
+                        
+                        forward_success = source_client.client.forward_email(
+                            email_message=original_email_message,
+                            to_addresses=[assignee_email],
+                            new_subject=todo_text,
+                            smtp_server=source_account_config.get("server"),
+                            smtp_port=587,
+                            smtp_username=source_account_config.get("username"),
+                            smtp_password=source_account_config.get("password"),
+                            sender_email=source_account_config.get("email_address"),
+                            bcc_addresses=bcc_list,
+                            additional_message="This task has been assigned to you.\n\nForwarded by IMAP AI Assistant"
+                        )
+                        
+                        if forward_success:
+                            logger.info(f"Successfully forwarded original email to {assignee}")
+                        else:
+                            logger.warning(f"Failed to forward original email to {assignee}")
+                    
+                    # Now move the original email to the target folder
+                    move_success = source_client.client.move_to_folder(original_message_id, target_folder)
+                    
+                    if move_success:
+                        logger.info(f"Successfully moved original email to {target_folder}")
+                        return True
+                    else:
+                        logger.warning(f"Failed to move original email to {target_folder}")
+                        return False
                 else:
-                    logger.warning(f"Failed to find/move original email in {source_account_config['name']}")
-                
-                return success
+                    logger.warning(f"Could not find original email with subject: '{original_subject}'")
+                    return False
                 
             finally:
                 # Always disconnect from source account

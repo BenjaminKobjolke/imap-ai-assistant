@@ -95,7 +95,8 @@ class ConfigManager:
         return {
             "target_folder": rules.get("target_folder", "@BKToDo"),
             "additional_subject_tag": rules.get("additional_subject_tag", "#BKToDo"),
-            "email_address": rules.get("email_address", "")
+            "email_address": rules.get("email_address", ""),
+            "bcc": rules.get("bcc", "")
         }
     
     def get_other_people_names(self) -> List[str]:
