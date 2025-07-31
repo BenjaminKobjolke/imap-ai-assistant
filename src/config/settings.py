@@ -1,0 +1,131 @@
+import json
+import logging
+from pathlib import Path
+from typing import Dict, List, Optional
+
+logger = logging.getLogger(__name__)
+
+
+class ConfigManager:
+    """Configuration manager for IMAP AI Assistant."""
+    
+    def __init__(self, config_path: str = "settings.json"):
+        self.config_path = config_path
+        self._config = {}
+        self.load_config()
+    
+    def load_config(self) -> None:
+        """Load configuration from JSON file."""
+        try:
+            config_file = Path(self.config_path)
+            if not config_file.exists():
+                logger.error(f"Configuration file {self.config_path} not found")
+                return
+            
+            with open(config_file, 'r', encoding='utf-8') as f:
+                self._config = json.load(f)
+            
+            logger.info(f"Configuration loaded from {self.config_path}")
+            self._validate_config()
+            
+        except json.JSONDecodeError as e:
+            logger.error(f"Invalid JSON in configuration file: {e}")
+        except Exception as e:
+            logger.error(f"Error loading configuration: {e}")
+    
+    def _validate_config(self) -> None:
+        """Validate required configuration sections."""
+        required_sections = ["accounts", "openai", "remember_the_milk", "processing", "smtp"]
+        missing_sections = [section for section in required_sections if section not in self._config]
+        
+        if missing_sections:
+            logger.warning(f"Missing configuration sections: {missing_sections}")
+    
+    @property
+    def accounts(self) -> List[Dict]:
+        """Get IMAP account configurations."""
+        return self._config.get("accounts", [])
+    
+    @property
+    def openai_api_key(self) -> Optional[str]:
+        """Get OpenAI API key."""
+        return self._config.get("openai", {}).get("api_key")
+    
+    @property
+    def openai_model(self) -> str:
+        """Get OpenAI model to use."""
+        return self._config.get("openai", {}).get("model", "gpt-4o")
+    
+    @property
+    def rtm_email(self) -> Optional[str]:
+        """Get Remember the Milk email address."""
+        return self._config.get("remember_the_milk", {}).get("email_address")
+    
+    @property
+    def target_folder(self) -> str:
+        """Get target folder for processed emails."""
+        return self._config.get("processing", {}).get("target_folder", "@BKToDo")
+    
+    @property
+    def subject_tag(self) -> str:
+        """Get additional subject tag."""
+        return self._config.get("processing", {}).get("additional_subject_tag", "#BKToDo")
+    
+    @property
+    def allowed_senders(self) -> List[str]:
+        """Get list of allowed email senders."""
+        return self._config.get("processing", {}).get("allowed_senders", [])
+    
+    @property
+    def smtp_config(self) -> Dict:
+        """Get SMTP configuration."""
+        return self._config.get("smtp", {})
+    
+    def is_valid(self) -> bool:
+        """Check if configuration is valid."""
+        return (
+            bool(self.accounts) and
+            bool(self.openai_api_key) and
+            bool(self.rtm_email) and
+            bool(self.smtp_config) and
+            bool(self.allowed_senders)
+        )
+    
+    def get_first_account(self) -> Optional[Dict]:
+        """Get the first configured account."""
+        accounts = self.accounts
+        return accounts[0] if accounts else None
+    
+    def get_processor_account(self) -> Optional[Dict]:
+        """Get the processor account configuration from SMTP settings."""
+        smtp_config = self.smtp_config
+        if not smtp_config:
+            return None
+        
+        # Create processor account config from SMTP settings
+        # Note: We need to add IMAP server info for the processor account
+        processor_account = {
+            "name": "SUMMERA AI Processor",
+            "email_address": smtp_config.get("from_email", ""),
+            "server": smtp_config.get("server", ""),  # Assuming IMAP uses same server
+            "username": smtp_config.get("username", ""),
+            "password": smtp_config.get("password", ""),
+            "port": 993,  # Standard IMAP SSL port
+            "use_ssl": True
+        }
+        return processor_account
+    
+    def get_source_account_by_email(self, sender_email: str) -> Optional[Dict]:
+        """Get source account configuration by sender email address."""
+        sender_email_lower = sender_email.lower()
+        
+        for account in self.accounts:
+            account_email = account.get("email_address", "").lower()
+            if account_email == sender_email_lower:
+                return account
+        
+        return None
+    
+    def get_all_source_accounts(self) -> List[Dict]:
+        """Get all source account configurations."""
+        return self.accounts
