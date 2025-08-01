@@ -139,6 +139,20 @@ class ConfigManager:
         
         return "Drafts"
     
+    def get_sent_folder(self, account_config: Optional[Dict] = None) -> str:
+        """Get the sent folder name from account configuration."""
+        if account_config is None:
+            account_config = self.get_first_account()
+        
+        if account_config:
+            return account_config.get("sent_folder", "Sent")
+        
+        return "Sent"
+    
+    def get_sent_search_limit(self) -> int:
+        """Get the limit for searching sent emails (for performance)."""
+        return self._config.get("sent_search_limit", 100)
+    
     def get_processor_account(self) -> Optional[Dict]:
         """Get the processor account configuration from SMTP settings."""
         smtp_config = self.smtp_config

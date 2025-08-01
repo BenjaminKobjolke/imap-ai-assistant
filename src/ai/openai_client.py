@@ -259,7 +259,8 @@ class OpenAIClient:
             return {"status": "unclear", "confidence": 1, "reason": f"Error: {str(e)}"}
     
     def generate_client_response(self, original_subject: str, original_content: str, 
-                                 assigned_task: str, assignee_response: str) -> Dict[str, str]:
+                                 assigned_task: str, assignee_response: str, 
+                                 last_sent_context: Optional[str] = None) -> Dict[str, str]:
         """Generate a response to send to the client based on completed task."""
         try:
             from string import Template
@@ -268,7 +269,8 @@ class OpenAIClient:
                 original_subject=original_subject,
                 original_content=original_content,
                 assigned_task=assigned_task,
-                assignee_response=assignee_response
+                assignee_response=assignee_response,
+                last_sent_context=last_sent_context or "No previous email context available"
             )
             
             # Call OpenAI API with JSON mode
