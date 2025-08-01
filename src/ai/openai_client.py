@@ -20,6 +20,10 @@ class OpenAIClient:
         self.other_people = other_people or []
         self.system_prompt = ""
         self.user_prompt_template = ""
+        self.task_completion_system_prompt = ""
+        self.task_completion_user_prompt_template = ""
+        self.client_response_system_prompt = ""
+        self.client_response_user_prompt_template = ""
         self._load_prompts()
     
     def _load_prompts(self) -> None:
@@ -49,6 +53,32 @@ class OpenAIClient:
             else:
                 logger.warning("User prompt template file not found")
                 exit(1)
+                
+            # Load task completion prompts
+            task_completion_system_path = Path("prompts/task_completion_system_prompt.txt")
+            if task_completion_system_path.exists():
+                with open(task_completion_system_path, 'r', encoding='utf-8') as f:
+                    self.task_completion_system_prompt = f.read().strip()
+                logger.debug("Task completion system prompt loaded successfully")
+                
+            task_completion_user_path = Path("prompts/task_completion_user_prompt.txt")
+            if task_completion_user_path.exists():
+                with open(task_completion_user_path, 'r', encoding='utf-8') as f:
+                    self.task_completion_user_prompt_template = f.read().strip()
+                logger.debug("Task completion user prompt loaded successfully")
+                
+            # Load client response prompts
+            client_response_system_path = Path("prompts/client_response_system_prompt.txt")
+            if client_response_system_path.exists():
+                with open(client_response_system_path, 'r', encoding='utf-8') as f:
+                    self.client_response_system_prompt = f.read().strip()
+                logger.debug("Client response system prompt loaded successfully")
+                
+            client_response_user_path = Path("prompts/client_response_user_prompt.txt")
+            if client_response_user_path.exists():
+                with open(client_response_user_path, 'r', encoding='utf-8') as f:
+                    self.client_response_user_prompt_template = f.read().strip()
+                logger.debug("Client response user prompt loaded successfully")
                 
         except Exception as e:
             logger.error(f"Error loading prompts: {e}")
@@ -188,6 +218,87 @@ class OpenAIClient:
         except Exception as e:
             logger.debug(f"Error extracting sender name from '{sender}': {e}")
             return sender
+    
+    def check_task_completion(self, original_task: str, assignee_response: str) -> Dict[str, Any]:
+        """Check if a task is completed based on assignee's response."""
+        try:
+            from string import Template
+            template = Template(self.task_completion_user_prompt_template)
+            user_prompt = template.safe_substitute(
+                original_task=original_task,
+                assignee_response=assignee_response
+            )
+            
+            # Call OpenAI API with JSON mode
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": self.task_completion_system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                max_tokens=150,
+                temperature=0.3,
+                response_format={"type": "json_object"}
+            )
+            
+            if response.choices and response.choices[0].message and response.choices[0].message.content:
+                response_content = response.choices[0].message.content.strip()
+                logger.info(f"Task completion check response: {response_content}")
+                
+                try:
+                    json_response = json.loads(response_content)
+                    return json_response
+                except json.JSONDecodeError as e:
+                    logger.error(f"Failed to parse task completion response: {e}")
+                    return {"status": "unclear", "confidence": 1, "reason": "Failed to parse response"}
+            else:
+                return {"status": "unclear", "confidence": 1, "reason": "No response from OpenAI"}
+                
+        except Exception as e:
+            logger.error(f"Error checking task completion: {e}")
+            return {"status": "unclear", "confidence": 1, "reason": f"Error: {str(e)}"}
+    
+    def generate_client_response(self, original_subject: str, original_content: str, 
+                                 assigned_task: str, assignee_response: str) -> Dict[str, str]:
+        """Generate a response to send to the client based on completed task."""
+        try:
+            from string import Template
+            template = Template(self.client_response_user_prompt_template)
+            user_prompt = template.safe_substitute(
+                original_subject=original_subject,
+                original_content=original_content,
+                assigned_task=assigned_task,
+                assignee_response=assignee_response
+            )
+            
+            # Call OpenAI API with JSON mode
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": self.client_response_system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                max_tokens=500,
+                temperature=0.7,
+                response_format={"type": "json_object"}
+            )
+            
+            if response.choices and response.choices[0].message and response.choices[0].message.content:
+                response_content = response.choices[0].message.content.strip()
+                logger.info(f"Client response generation: {response_content}")
+                
+                try:
+                    json_response = json.loads(response_content)
+                    return json_response
+                except json.JSONDecodeError as e:
+                    logger.error(f"Failed to parse client response: {e}")
+                    return {"response": "Task completed.", "subject": "Re: " + original_subject}
+            else:
+                return {"response": "Task completed.", "subject": "Re: " + original_subject}
+                
+        except Exception as e:
+            logger.error(f"Error generating client response: {e}")
+            return {"response": "Task completed.", "subject": "Re: " + original_subject}
     
     def test_connection(self) -> bool:
         """Test OpenAI API connection."""

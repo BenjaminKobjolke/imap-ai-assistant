@@ -20,6 +20,7 @@ def main():
     parser = argparse.ArgumentParser(description='IMAP AI Assistant - AI-powered email to todo conversion')
     parser.add_argument('--test', action='store_true', help='Test all connections and configurations')
     parser.add_argument('--status', action='store_true', help='Show status summary')
+    parser.add_argument('--responses', action='store_true', help='Process assignee responses')
     parser.add_argument('--config', default='settings.json', help='Path to configuration file')
     
     args = parser.parse_args()
@@ -45,10 +46,26 @@ def main():
             logger.info(f"  {key}: {value}")
         return
     
-    # Default action: process unread emails
+    if args.responses:
+        # Process assignee responses
+        logger.info("🔄 Processing assignee responses...")
+        processor.process_assignee_responses()
+        logger.info("✅ Response processing completed")
+        return
+    
+    # Default action: process unread emails AND assignee responses
     logger.info("🚀 Starting IMAP AI Assistant")
+    
+    # Process regular emails first
     processor.process_unread_emails()
-    logger.info("✅ Email processing completed")
+    logger.info("✅ Regular email processing completed")
+    
+    # Then process assignee responses
+    logger.info("🔄 Processing assignee responses...")
+    processor.process_assignee_responses()
+    logger.info("✅ Response processing completed")
+    
+    logger.info("✅ All email processing completed")
 
 
 if __name__ == "__main__":

@@ -129,6 +129,16 @@ class ConfigManager:
         accounts = self.accounts
         return accounts[0] if accounts else None
     
+    def get_drafts_folder(self, account_config: Optional[Dict] = None) -> str:
+        """Get the drafts folder name from account configuration."""
+        if account_config is None:
+            account_config = self.get_first_account()
+        
+        if account_config:
+            return account_config.get("drafts_folder", "Drafts")
+        
+        return "Drafts"
+    
     def get_processor_account(self) -> Optional[Dict]:
         """Get the processor account configuration from SMTP settings."""
         smtp_config = self.smtp_config

@@ -20,7 +20,7 @@ class SmtpClient:
         self.from_email = smtp_config.get("from_email", self.username)
     
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
-    def send_email(self, to_email: str, subject: str, body: str, from_email: Optional[str] = None) -> bool:
+    def send_email(self, to_email: str, subject: str, body: str, from_email: Optional[str] = None, custom_headers: Optional[Dict[str, str]] = None) -> bool:
         """Send email with retry logic."""
         sender_email = from_email or self.from_email
         if not sender_email:
@@ -32,6 +32,12 @@ class SmtpClient:
             msg['From'] = sender_email
             msg['To'] = to_email
             msg['Subject'] = subject
+            
+            # Add custom headers if provided
+            if custom_headers:
+                for header_name, header_value in custom_headers.items():
+                    msg[header_name] = header_value
+                    logger.debug(f"Added custom header: {header_name} = {header_value}")
             
             # Add body to email
             msg.attach(MIMEText(body, 'plain'))
@@ -57,7 +63,8 @@ class SmtpClient:
             raise  # Re-raise for retry logic
     
     def send_rtm_todo(self, rtm_email: str, todo_text: str, subject_tag: str, 
-                      original_subject: str = "", original_sender: str = "") -> bool:
+                      original_subject: str = "", original_sender: str = "", 
+                      task_tracking_headers: Optional[Dict[str, str]] = None) -> bool:
         """Send todo to Remember the Milk with proper formatting."""
         try:
             # Create subject line with RTM todo format and additional tag
@@ -75,8 +82,8 @@ class SmtpClient:
             ]
             body = "\n".join(body_lines)
             
-            # Send the email
-            success = self.send_email(rtm_email, subject, body)
+            # Send the email with task tracking headers
+            success = self.send_email(rtm_email, subject, body, custom_headers=task_tracking_headers)
             
             if success:
                 logger.info(f"RTM todo sent successfully: {todo_text}")
