@@ -186,3 +186,28 @@ class ConfigManager:
     def get_all_source_accounts(self) -> List[Dict]:
         """Get all source account configurations."""
         return self.accounts
+    
+    @property
+    def logging_config(self) -> Dict:
+        """Get logging configuration."""
+        return self._config.get("logging", {})
+    
+    @property
+    def logging_enabled(self) -> bool:
+        """Check if logging is enabled."""
+        return self.logging_config.get("enabled", True)
+    
+    @property
+    def log_dir(self) -> str:
+        """Get log directory path."""
+        return self.logging_config.get("log_dir", "logs")
+    
+    @property
+    def log_max_file_size_mb(self) -> int:
+        """Get maximum log file size in MB."""
+        return self.logging_config.get("max_file_size_mb", 10)
+    
+    @property
+    def log_backup_count(self) -> int:
+        """Get number of backup log files to keep."""
+        return self.logging_config.get("backup_count", 5)

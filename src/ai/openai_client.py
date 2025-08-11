@@ -1,10 +1,12 @@
 import logging
 import re
 import json
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Tuple, Dict, Any, List
 from openai import OpenAI
+from src.logging.app_logger import ApplicationLogger
 
 logger = logging.getLogger(__name__)
 
@@ -12,12 +14,13 @@ logger = logging.getLogger(__name__)
 class OpenAIClient:
     """OpenAI client for processing emails into RTM todo format."""
     
-    def __init__(self, api_key: str, model: str = "gpt-4o", max_tokens: int = 100, temperature: float = 0.3, other_people: List[str] = None):
+    def __init__(self, api_key: str, model: str = "gpt-4o", max_tokens: int = 100, temperature: float = 0.3, other_people: List[str] = None, app_logger: Optional[ApplicationLogger] = None):
         self.client = OpenAI(api_key=api_key)
         self.model = model
         self.max_tokens = max_tokens
         self.temperature = temperature
         self.other_people = other_people or []
+        self.app_logger = app_logger
         self.system_prompt = ""
         self.user_prompt_template = ""
         self.task_completion_system_prompt = ""
@@ -86,6 +89,9 @@ class OpenAIClient:
     
     def process_email_to_todo(self, subject: str, first_line: str, body_excerpt: str) -> Optional[Tuple[str, str]]:
         """Process email content into RTM todo format using OpenAI."""
+        request_id = None
+        start_time = time.time()
+        
         try:
             print(f"User prompt template: {self.user_prompt_template}")
             from string import Template
@@ -100,7 +106,23 @@ class OpenAIClient:
                 first_line=first_line,
                 body_excerpt=body_excerpt,
                 assignees=assignees_str
-            )            
+            )
+            
+            # Log the request
+            if self.app_logger:
+                request_data = {
+                    "subject": subject,
+                    "first_line": first_line,
+                    "body_excerpt": body_excerpt,
+                    "system_prompt": self.system_prompt[:200] + "..." if len(self.system_prompt) > 200 else self.system_prompt,
+                    "user_prompt": user_prompt
+                }
+                metadata = {
+                    "model": self.model,
+                    "max_tokens": self.max_tokens,
+                    "temperature": self.temperature
+                }
+                request_id = self.app_logger.log_ai_request("email_to_todo", request_data, metadata)
            
             # Call OpenAI API with JSON mode
             response = self.client.chat.completions.create(
@@ -118,6 +140,16 @@ class OpenAIClient:
             if response.choices and response.choices[0].message and response.choices[0].message.content:
                 response_content = response.choices[0].message.content.strip()
                 logger.info(f"OpenAI response: {response_content}")
+                
+                # Log the response
+                if self.app_logger and request_id:
+                    processing_time = time.time() - start_time
+                    tokens_used = {
+                        "prompt_tokens": response.usage.prompt_tokens if response.usage else 0,
+                        "completion_tokens": response.usage.completion_tokens if response.usage else 0,
+                        "total_tokens": response.usage.total_tokens if response.usage else 0
+                    }
+                    self.app_logger.log_ai_response(request_id, "email_to_todo", response_content, processing_time, tokens_used)
                 
                 try:
                     # Parse JSON response
@@ -146,6 +178,11 @@ class OpenAIClient:
                 
         except Exception as e:
             logger.error(f"Error processing email with OpenAI: {e}")
+            # Log the error
+            if self.app_logger:
+                if not request_id:
+                    request_id = str(time.time())
+                self.app_logger.log_ai_error(request_id, "email_to_todo", e, {"subject": subject})
             return self._create_fallback_todo(subject, first_line, body_excerpt), "self"
     
     def _validate_todo_format(self, todo_text: str) -> Optional[str]:
@@ -221,6 +258,9 @@ class OpenAIClient:
     
     def check_task_completion(self, original_task: str, assignee_response: str) -> Dict[str, Any]:
         """Check if a task is completed based on assignee's response."""
+        request_id = None
+        start_time = time.time()
+        
         try:
             from string import Template
             template = Template(self.task_completion_user_prompt_template)
@@ -228,6 +268,21 @@ class OpenAIClient:
                 original_task=original_task,
                 assignee_response=assignee_response
             )
+            
+            # Log the request
+            if self.app_logger:
+                request_data = {
+                    "original_task": original_task,
+                    "assignee_response": assignee_response,
+                    "system_prompt": self.task_completion_system_prompt[:200] + "..." if len(self.task_completion_system_prompt) > 200 else self.task_completion_system_prompt,
+                    "user_prompt": user_prompt
+                }
+                metadata = {
+                    "model": self.model,
+                    "max_tokens": 150,
+                    "temperature": 0.3
+                }
+                request_id = self.app_logger.log_ai_request("task_completion", request_data, metadata)
             
             # Call OpenAI API with JSON mode
             response = self.client.chat.completions.create(
@@ -245,6 +300,16 @@ class OpenAIClient:
                 response_content = response.choices[0].message.content.strip()
                 logger.info(f"Task completion check response: {response_content}")
                 
+                # Log the response
+                if self.app_logger and request_id:
+                    processing_time = time.time() - start_time
+                    tokens_used = {
+                        "prompt_tokens": response.usage.prompt_tokens if response.usage else 0,
+                        "completion_tokens": response.usage.completion_tokens if response.usage else 0,
+                        "total_tokens": response.usage.total_tokens if response.usage else 0
+                    }
+                    self.app_logger.log_ai_response(request_id, "task_completion", response_content, processing_time, tokens_used)
+                
                 try:
                     json_response = json.loads(response_content)
                     return json_response
@@ -256,12 +321,20 @@ class OpenAIClient:
                 
         except Exception as e:
             logger.error(f"Error checking task completion: {e}")
+            # Log the error
+            if self.app_logger:
+                if not request_id:
+                    request_id = str(time.time())
+                self.app_logger.log_ai_error(request_id, "task_completion", e, {"original_task": original_task})
             return {"status": "unclear", "confidence": 1, "reason": f"Error: {str(e)}"}
     
     def generate_client_response(self, original_subject: str, original_content: str, 
                                  assigned_task: str, assignee_response: str, 
                                  last_sent_context: Optional[str] = None) -> Dict[str, str]:
         """Generate a response to send to the client based on completed task."""
+        request_id = None
+        start_time = time.time()
+        
         try:
             from string import Template
             template = Template(self.client_response_user_prompt_template)
@@ -272,6 +345,24 @@ class OpenAIClient:
                 assignee_response=assignee_response,
                 last_sent_context=last_sent_context or "No previous email context available"
             )
+            
+            # Log the request
+            if self.app_logger:
+                request_data = {
+                    "original_subject": original_subject,
+                    "original_content": original_content[:500] + "..." if len(original_content) > 500 else original_content,
+                    "assigned_task": assigned_task,
+                    "assignee_response": assignee_response,
+                    "last_sent_context": (last_sent_context[:200] + "...") if last_sent_context and len(last_sent_context) > 200 else last_sent_context,
+                    "system_prompt": self.client_response_system_prompt[:200] + "..." if len(self.client_response_system_prompt) > 200 else self.client_response_system_prompt,
+                    "user_prompt": user_prompt[:500] + "..." if len(user_prompt) > 500 else user_prompt
+                }
+                metadata = {
+                    "model": self.model,
+                    "max_tokens": 500,
+                    "temperature": 0.7
+                }
+                request_id = self.app_logger.log_ai_request("client_response", request_data, metadata)
             
             # Call OpenAI API with JSON mode
             response = self.client.chat.completions.create(
@@ -289,6 +380,16 @@ class OpenAIClient:
                 response_content = response.choices[0].message.content.strip()
                 logger.info(f"Client response generation: {response_content}")
                 
+                # Log the response
+                if self.app_logger and request_id:
+                    processing_time = time.time() - start_time
+                    tokens_used = {
+                        "prompt_tokens": response.usage.prompt_tokens if response.usage else 0,
+                        "completion_tokens": response.usage.completion_tokens if response.usage else 0,
+                        "total_tokens": response.usage.total_tokens if response.usage else 0
+                    }
+                    self.app_logger.log_ai_response(request_id, "client_response", response_content, processing_time, tokens_used)
+                
                 try:
                     json_response = json.loads(response_content)
                     return json_response
@@ -300,11 +401,31 @@ class OpenAIClient:
                 
         except Exception as e:
             logger.error(f"Error generating client response: {e}")
+            # Log the error
+            if self.app_logger:
+                if not request_id:
+                    request_id = str(time.time())
+                self.app_logger.log_ai_error(request_id, "client_response", e, {"original_subject": original_subject})
             return {"response": "Task completed.", "subject": "Re: " + original_subject}
     
     def test_connection(self) -> bool:
         """Test OpenAI API connection."""
+        request_id = None
+        start_time = time.time()
+        
         try:
+            # Log the test request
+            if self.app_logger:
+                request_data = {
+                    "test_message": "Hello",
+                    "purpose": "connection_test"
+                }
+                metadata = {
+                    "model": self.model,
+                    "max_tokens": 10
+                }
+                request_id = self.app_logger.log_ai_request("connection_test", request_data, metadata)
+            
             # Simple test API call
             response = self.client.chat.completions.create(
                 model=self.model,
@@ -314,6 +435,21 @@ class OpenAIClient:
             
             if response.choices:
                 logger.info("OpenAI API connection test successful")
+                
+                # Log the successful test
+                if self.app_logger and request_id:
+                    processing_time = time.time() - start_time
+                    response_data = {
+                        "status": "success",
+                        "response": response.choices[0].message.content if response.choices[0].message else None
+                    }
+                    tokens_used = {
+                        "prompt_tokens": response.usage.prompt_tokens if response.usage else 0,
+                        "completion_tokens": response.usage.completion_tokens if response.usage else 0,
+                        "total_tokens": response.usage.total_tokens if response.usage else 0
+                    }
+                    self.app_logger.log_ai_response(request_id, "connection_test", response_data, processing_time, tokens_used)
+                
                 return True
             else:
                 logger.error("OpenAI API connection test failed: No response")
@@ -321,4 +457,9 @@ class OpenAIClient:
                 
         except Exception as e:
             logger.error(f"OpenAI API connection test failed: {e}")
+            # Log the error
+            if self.app_logger:
+                if not request_id:
+                    request_id = str(time.time())
+                self.app_logger.log_ai_error(request_id, "connection_test", e)
             return False
