@@ -1,5 +1,9 @@
+from __future__ import annotations
+
 import logging
 import re
+import subprocess
+import webbrowser
 from datetime import datetime, date, timezone, timedelta
 from typing import Optional, Tuple
 
@@ -99,7 +103,25 @@ class MeetingCleanup:
         if rrule_m:
             rrule = rrule_m.group(1)
 
-        return {'dtstart': dtstart, 'dtend': dtend, 'rrule': rrule}
+        # Extract ORGANIZER (CN param)
+        organizer = None
+        org_m = re.search(r'ORGANIZER[^:]*?CN=([^;:\r\n]+)', vevent)
+        if org_m:
+            organizer = org_m.group(1).strip().strip('"')
+
+        # Extract LOCATION
+        location = None
+        loc_m = re.search(r'LOCATION[:]([^\r\n]+)', vevent)
+        if loc_m:
+            location = loc_m.group(1).strip()
+
+        return {
+            'dtstart': dtstart,
+            'dtend': dtend,
+            'rrule': rrule,
+            'organizer': organizer,
+            'location': location,
+        }
 
     @staticmethod
     def _normalize_to_utc(dt: datetime) -> datetime:
@@ -120,6 +142,63 @@ class MeetingCleanup:
         except Exception as e:
             logger.warning(f"Failed to evaluate RRULE: {e}")
             return False
+
+    @staticmethod
+    def _extract_meeting_links(email_message, ics_text: str | None) -> list[dict[str, str]]:
+        """Extract meeting URLs from ICS data and email body.
+
+        Returns a list of dicts with 'type' and 'url' keys.
+        """
+        seen_urls: set[str] = set()
+        links: list[dict[str, str]] = []
+
+        # Base paths without an actual meeting identifier
+        _generic_paths = re.compile(
+            r'^https://teams\.microsoft\.com/l/meetup-join/?$'
+            r'|^https://teams\.microsoft\.com/?$'
+            r'|^https://(?:[\w-]+\.)?zoom\.us/j/?$'
+            r'|^https://meet\.google\.com/?$'
+        )
+
+        def _add(link_type: str, url: str) -> None:
+            if url in seen_urls:
+                return
+            if _generic_paths.match(url):
+                return
+            seen_urls.add(url)
+            links.append({"type": link_type, "url": url})
+
+        # 1. ICS: X-MICROSOFT-SKYPETEAMSMEETINGURL
+        if ics_text:
+            skype_m = re.search(r'X-MICROSOFT-SKYPETEAMSMEETINGURL[:]([^\r\n]+)', ics_text)
+            if skype_m:
+                _add("Teams", skype_m.group(1).strip())
+
+        # 2. Email plain-text body
+        body = ""
+        try:
+            body = email_message.get_body("text/plain") or ""
+        except Exception:
+            pass
+
+        url_patterns = [
+            ("Teams", r'https://teams\.microsoft\.com/[^\s<>"]+'),
+            ("Zoom", r'https://(?:[\w-]+\.)?zoom\.us/j/[^\s<>"]+'),
+            ("Google Meet", r'https://meet\.google\.com/[^\s<>"]+'),
+        ]
+        for link_type, pattern in url_patterns:
+            for m in re.finditer(pattern, body):
+                _add(link_type, m.group(0))
+
+        # 3. ICS LOCATION (if it looks like a URL)
+        if ics_text:
+            loc_m = re.search(r'LOCATION[:]([^\r\n]+)', ics_text)
+            if loc_m:
+                loc_val = loc_m.group(1).strip()
+                if loc_val.startswith("http"):
+                    _add("Location link", loc_val)
+
+        return links
 
     @staticmethod
     def extract_meeting_datetime(email_message) -> Optional[datetime]:
@@ -243,12 +322,11 @@ class MeetingCleanup:
         print(f"  Checked: {total} | Moved: {moved} | Kept: {kept} | Skipped: {skipped}")
 
     @staticmethod
-    def list_todays_meetings(client, config) -> None:
-        """List all meetings scheduled for today.
+    def get_todays_meetings(client, config) -> list[dict]:
+        """Collect today's meetings as a list of dicts.
 
-        Args:
-            client: Connected EnhancedImapClient instance
-            config: ConfigManager instance
+        Each dict has: index (1-based), start, end, subject, email_message,
+        ics_text, parsed.
         """
         folder = config.meetings_folder
         today = datetime.now().date()
@@ -257,21 +335,22 @@ class MeetingCleanup:
 
         messages = client.client.get_all_messages(folder=folder)
         if not messages:
-            print(f"\nNo messages found in '{folder}'")
-            return
+            return []
 
-        todays = []
+        todays: list[dict] = []
         for _, email_message in messages:
             subject = email_message.subject or "(no subject)"
             try:
-                parsed = MeetingCleanup._parse_event_from_email(email_message)
+                ics_data = MeetingCleanup._get_ics_data(email_message)
+                ics_text = ics_data.decode('utf-8', errors='replace') if ics_data else None
+                parsed = MeetingCleanup._parse_vevent(ics_text) if ics_text else None
+
                 if parsed is None or parsed['dtstart'] is None:
                     continue
 
                 local_tz = parsed['dtstart'].tzinfo
 
                 if parsed.get('rrule'):
-                    # Recurring event: check if today is an occurrence
                     try:
                         rule = rrulestr(parsed['rrule'], dtstart=parsed['dtstart'])
                         today_start = datetime(today.year, today.month, today.day, 0, 0, 0, tzinfo=local_tz)
@@ -279,35 +358,129 @@ class MeetingCleanup:
                         occurrences = rule.between(today_start, today_end, inc=True)
                         if occurrences:
                             occ_start = occurrences[0].astimezone()
-                            # Calculate end time from duration
                             if parsed.get('dtend'):
                                 duration = parsed['dtend'] - parsed['dtstart']
                                 occ_end = (occurrences[0] + duration).astimezone()
                             else:
                                 occ_end = None
-                            todays.append((occ_start, occ_end, subject))
+                            todays.append({
+                                "start": occ_start,
+                                "end": occ_end,
+                                "subject": subject,
+                                "email_message": email_message,
+                                "ics_text": ics_text,
+                                "parsed": parsed,
+                            })
                     except Exception as e:
                         logger.debug(f"Error expanding RRULE for '{subject}': {e}")
                 else:
-                    # One-time event: check if start date is today
                     local_start = parsed['dtstart'].astimezone()
                     if local_start.date() == today:
                         local_end = parsed['dtend'].astimezone() if parsed.get('dtend') else None
-                        todays.append((local_start, local_end, subject))
+                        todays.append({
+                            "start": local_start,
+                            "end": local_end,
+                            "subject": subject,
+                            "email_message": email_message,
+                            "ics_text": ics_text,
+                            "parsed": parsed,
+                        })
 
             except Exception as e:
                 logger.debug(f"Error checking '{subject}': {e}")
 
-        if not todays:
+        todays.sort(key=lambda m: m["start"])
+        for i, meeting in enumerate(todays, 1):
+            meeting["index"] = i
+
+        return todays
+
+    @staticmethod
+    def list_todays_meetings(client, config) -> None:
+        """List all meetings scheduled for today with 1-based indices.
+
+        Args:
+            client: Connected EnhancedImapClient instance
+            config: ConfigManager instance
+        """
+        today = datetime.now().date()
+        meetings = MeetingCleanup.get_todays_meetings(client, config)
+
+        if not meetings:
             print(f"\nNo meetings today ({today})")
             return
 
-        # Sort by start time
-        todays.sort(key=lambda m: m[0])
-
         _safe_print(f"\nToday's meetings ({today}):\n")
-        for start, end, subject in todays:
-            start_str = start.strftime("%H:%M")
-            end_str = end.strftime("%H:%M") if end else "??:??"
-            _safe_print(f"  {start_str} - {end_str}  {subject}")
-        _safe_print(f"\nTotal: {len(todays)} meeting(s)")
+        for m in meetings:
+            start_str = m["start"].strftime("%H:%M")
+            end_str = m["end"].strftime("%H:%M") if m["end"] else "??:??"
+            _safe_print(f"  {m['index']:>2}.  {start_str} - {end_str}  {m['subject']}")
+        _safe_print(f"\nTotal: {len(meetings)} meeting(s)")
+
+    @staticmethod
+    def show_meeting_detail(client, config, index: int) -> None:
+        """Show full details for a specific meeting by 1-based index.
+
+        Extracts meeting links and copies/opens the first one found.
+        """
+        meetings = MeetingCleanup.get_todays_meetings(client, config)
+
+        if not meetings or index < 1 or index > len(meetings):
+            _safe_print(f"\nInvalid meeting index: {index}. Use --todays-meetings to see available indices.")
+            return
+
+        m = meetings[index - 1]
+        start_str = m["start"].strftime("%H:%M")
+        end_str = m["end"].strftime("%H:%M") if m["end"] else "??:??"
+
+        organizer = m["parsed"].get("organizer") or "(unknown)"
+        location = m["parsed"].get("location") or "(none)"
+        links = MeetingCleanup._extract_meeting_links(m["email_message"], m["ics_text"])
+
+        _safe_print(f"\nMeeting #{index}: {m['subject']}\n")
+        _safe_print(f"  Time:       {start_str} - {end_str}")
+        _safe_print(f"  Organizer:  {organizer}")
+        _safe_print(f"  Location:   {location}")
+
+        if links:
+            _safe_print("\n  Links:")
+            for i, link in enumerate(links, 1):
+                _safe_print(f"    {i}. {link['type']}: {link['url']}")
+
+            _safe_print("\n  [c] Copy link to clipboard")
+            _safe_print("  [o] Open link in browser")
+            _safe_print("  [a] Abort")
+            choice = input("\n  > ").strip().lower()
+
+            if choice in ("c", "o"):
+                # Pick link index (skip prompt if only one link)
+                if len(links) == 1:
+                    link_idx = 0
+                else:
+                    idx_input = input(f"  Link number [1-{len(links)}]: ").strip()
+                    try:
+                        link_idx = int(idx_input) - 1
+                        if link_idx < 0 or link_idx >= len(links):
+                            _safe_print("  Invalid link number. Aborted.")
+                            return
+                    except ValueError:
+                        _safe_print("  Invalid input. Aborted.")
+                        return
+
+                url = links[link_idx]["url"]
+                if choice == "c":
+                    try:
+                        subprocess.run(["clip"], input=url, text=True, check=False)
+                        _safe_print("  Link copied to clipboard.")
+                    except Exception:
+                        _safe_print("  Failed to copy to clipboard.")
+                else:
+                    try:
+                        webbrowser.open(url)
+                        _safe_print("  Link opened in browser.")
+                    except Exception:
+                        _safe_print("  Failed to open browser.")
+            else:
+                _safe_print("  Aborted.")
+        else:
+            _safe_print("\n  Links:      (none found)")

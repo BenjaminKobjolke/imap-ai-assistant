@@ -25,6 +25,7 @@ def main():
     parser.add_argument('--use-processor-account', action='store_true', help='Use processor account instead of main account (for --inspect)')
     parser.add_argument('--cleanup-meetings', action='store_true', help='Archive old meeting emails based on their calendar date')
     parser.add_argument('--todays-meetings', action='store_true', help="List today's meetings with times")
+    parser.add_argument('--todays-meeting', type=int, metavar='N', help="Show details for today's meeting N (use --todays-meetings to see indices)")
     parser.add_argument('--config', default='settings.json', help='Path to configuration file')
     
     args = parser.parse_args()
@@ -68,6 +69,11 @@ def main():
         logger.info("🗓️ Starting meeting cleanup...")
         processor.cleanup_meetings()
         logger.info("✅ Meeting cleanup completed")
+        return
+
+    if args.todays_meeting is not None:
+        # Show detail for a specific meeting
+        processor.todays_meeting_detail(args.todays_meeting)
         return
 
     if args.todays_meetings:

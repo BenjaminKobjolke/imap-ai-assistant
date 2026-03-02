@@ -254,6 +254,25 @@ class EmailProcessor:
         finally:
             client.disconnect()
 
+    def todays_meeting_detail(self, index: int) -> None:
+        """Show details for a specific today's meeting by index."""
+        account_config = self.config.get_first_account()
+        if not account_config:
+            logger.error("No main account configuration found")
+            return
+
+        client = EnhancedImapClient(account_config)
+        if not client.connect():
+            logger.error("Failed to connect to IMAP server")
+            return
+
+        try:
+            MeetingCleanup.show_meeting_detail(client, self.config, index)
+        except Exception as e:
+            logger.error(f"Error showing meeting detail: {e}")
+        finally:
+            client.disconnect()
+
     def todays_meetings(self) -> None:
         """List today's meetings from the meetings folder."""
         account_config = self.config.get_first_account()
