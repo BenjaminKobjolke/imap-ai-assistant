@@ -199,6 +199,14 @@ class ConfigManager:
         return self._config.get("smtp", {}).get("done_folder", "")
 
     @property
+    def processor_sent_folder(self) -> str:
+        """Get the IMAP folder to archive sent messages on the AI account.
+
+        Empty string means don't archive sent messages (disabled).
+        """
+        return self._config.get("smtp", {}).get("sent_folder", "")
+
+    @property
     def logging_config(self) -> dict:
         """Get logging configuration."""
         return self._config.get("logging", {})

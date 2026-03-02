@@ -85,11 +85,14 @@ class TaskProcessor:
                 done_folder = self.config.processor_done_folder
                 if done_folder:
                     logger.info(f"[DRY RUN] Would move message to \"{done_folder}\" on processor account")
+                sent_folder = self.config.processor_sent_folder
+                if sent_folder:
+                    logger.info(f"[DRY RUN] Would append sent message to \"{sent_folder}\" on processor account")
                 logger.info(f"[DRY RUN] Would handle original email (move to {target_folder}, "
                             f"forward to {assignee_email or 'N/A'})")
                 return True
 
-            success = self.smtp_client.send_rtm_todo(
+            success, sent_message_bytes = self.smtp_client.send_rtm_todo(
                 rtm_email=rtm_email,
                 todo_text=todo_text,
                 subject_tag=subject_tag,
@@ -113,6 +116,14 @@ class TaskProcessor:
                     logger.warning(f"Failed to move message {message_id} to \"{done_folder}\" on processor account")
                 else:
                     logger.info(f"Moved message {message_id} to \"{done_folder}\" on processor account")
+
+            # Append sent message to IMAP Sent folder if configured
+            sent_folder = self.config.processor_sent_folder
+            if sent_folder and sent_message_bytes:
+                if not imap_client.append_to_folder(sent_folder, sent_message_bytes):
+                    logger.warning(f"Failed to append sent message to \"{sent_folder}\" on processor account")
+                else:
+                    logger.info(f"Appended sent message to \"{sent_folder}\" on processor account")
 
             # Handle original email management and forwarding
             success = self._handle_original_email(

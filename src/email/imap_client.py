@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 import re
 from typing import List, Tuple, Optional
@@ -122,6 +124,24 @@ class EnhancedImapClient:
             return True
         except Exception as e:
             logger.error(f"Error marking message {message_id} as read: {e}")
+            return False
+
+    def append_to_folder(
+        self, folder: str, message_bytes: bytes, flags: list[bytes] | None = None,
+    ) -> bool:
+        """Append a fully-composed message to an IMAP folder.
+
+        Uses the same low-level IMAP append as invite_processor.py.
+        """
+        if flags is None:
+            flags = [b"\\Seen"]
+
+        try:
+            self.client.client.append(folder, message_bytes, flags)
+            logger.info(f"Appended message to IMAP folder \"{folder}\"")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to append message to IMAP folder \"{folder}\": {e}")
             return False
 
     def _strip_subject_prefixes(self, subject: str) -> str:

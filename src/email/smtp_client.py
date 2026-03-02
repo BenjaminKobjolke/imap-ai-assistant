@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 import smtplib
 from email.mime.text import MIMEText
@@ -24,8 +26,12 @@ class SmtpClient:
         self, to_email: str, subject: str, body: str,
         from_email: Optional[str] = None,
         custom_headers: Optional[Dict[str, str]] = None,
-    ) -> bool:
-        """Send email with retry logic."""
+    ) -> tuple[bool, bytes | None]:
+        """Send email with retry logic.
+
+        Returns a (success, message_bytes) tuple so callers can archive
+        the composed message (e.g. append to an IMAP Sent folder).
+        """
         sender_email = from_email or self.from_email
         if not sender_email:
             raise ValueError("No sender email address available")
@@ -46,6 +52,9 @@ class SmtpClient:
             # Add body to email
             msg.attach(MIMEText(body, 'plain'))
 
+            # Capture message bytes before sending
+            message_bytes = msg.as_bytes()
+
             # Create SMTP session
             server = smtplib.SMTP(self.server, self.port)
 
@@ -55,12 +64,11 @@ class SmtpClient:
             server.login(self.username, self.password)
 
             # Send email
-            text = msg.as_string()
-            server.sendmail(sender_email, to_email, text)
+            server.sendmail(sender_email, to_email, message_bytes)
             server.quit()
 
             logger.info(f"Email sent successfully to {to_email}")
-            return True
+            return True, message_bytes
 
         except Exception as e:
             logger.error(f"Error sending email to {to_email}: {e}")
@@ -68,8 +76,11 @@ class SmtpClient:
 
     def send_rtm_todo(self, rtm_email: str, todo_text: str, subject_tag: str,
                       original_subject: str = "", original_sender: str = "",
-                      task_tracking_headers: Optional[Dict[str, str]] = None) -> bool:
-        """Send todo to Remember the Milk with proper formatting."""
+                      task_tracking_headers: Optional[Dict[str, str]] = None) -> tuple[bool, bytes | None]:
+        """Send todo to Remember the Milk with proper formatting.
+
+        Returns a (success, message_bytes) tuple.
+        """
         try:
             # Create subject line with RTM todo format and additional tag
             subject = f"{todo_text} {subject_tag}"
@@ -87,18 +98,18 @@ class SmtpClient:
             body = "\n".join(body_lines)
 
             # Send the email with task tracking headers
-            success = self.send_email(rtm_email, subject, body, custom_headers=task_tracking_headers)
+            success, sent_bytes = self.send_email(rtm_email, subject, body, custom_headers=task_tracking_headers)
 
             if success:
                 logger.info(f"RTM todo sent successfully: {todo_text}")
             else:
                 logger.error(f"Failed to send RTM todo: {todo_text}")
 
-            return success
+            return success, sent_bytes
 
         except Exception as e:
             logger.error(f"Error sending RTM todo: {e}")
-            return False
+            return False, None
 
     def test_connection(self) -> bool:
         """Test SMTP connection."""
