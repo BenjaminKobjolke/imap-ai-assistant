@@ -1,10 +1,12 @@
+from __future__ import annotations
+
 import json
 import logging
 import uuid
 from datetime import datetime
-from pathlib import Path
-from typing import Any, Dict, Optional
 from logging.handlers import RotatingFileHandler
+from pathlib import Path
+from typing import Any
 
 
 class ApplicationLogger:
@@ -22,7 +24,7 @@ class ApplicationLogger:
         self.log_dir = Path(log_dir)
         self.max_bytes = max_bytes
         self.backup_count = backup_count
-        self.loggers = {}
+        self.loggers: dict[str, logging.Logger] = {}
 
         # Create log directory if it doesn't exist
         self.log_dir.mkdir(parents=True, exist_ok=True)
@@ -76,8 +78,8 @@ class ApplicationLogger:
         logger.addHandler(handler)
         self.loggers[category] = logger
 
-    def log_ai_request(self, request_type: str, request_data: Dict[str, Any],
-                      metadata: Optional[Dict[str, Any]] = None) -> str:
+    def log_ai_request(self, request_type: str, request_data: dict[str, Any],
+                      metadata: dict[str, Any] | None = None) -> str:
         """
         Log an AI API request.
 
@@ -106,7 +108,7 @@ class ApplicationLogger:
 
     def log_ai_response(self, request_id: str, request_type: str,
                        response_data: Any, processing_time: float = 0,
-                       tokens_used: Optional[Dict[str, int]] = None) -> None:
+                       tokens_used: dict[str, int] | None = None) -> None:
         """
         Log an AI API response.
 
@@ -132,7 +134,7 @@ class ApplicationLogger:
         logger.info(json.dumps(log_entry, ensure_ascii=False))
 
     def log_ai_error(self, request_id: str, request_type: str,
-                    error: Exception, request_data: Optional[Dict[str, Any]] = None) -> None:
+                    error: Exception, request_data: dict[str, Any] | None = None) -> None:
         """
         Log an AI API error.
 
@@ -159,7 +161,7 @@ class ApplicationLogger:
         logger.error(json.dumps(log_entry, ensure_ascii=False))
 
     def log_event(self, category: str, event_type: str, data: Any,
-                 level: str = 'info', metadata: Optional[Dict[str, Any]] = None) -> None:
+                 level: str = 'info', metadata: dict[str, Any] | None = None) -> None:
         """
         Log a general application event.
 

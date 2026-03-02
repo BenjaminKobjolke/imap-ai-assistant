@@ -47,6 +47,10 @@ disallow_untyped_defs = false
 check_untyped_defs = true
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+module = "src.config.settings"
+warn_return_any = false
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]

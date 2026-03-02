@@ -1,11 +1,14 @@
+from __future__ import annotations
+
+import json
 import logging
 import re
-import json
 import time
-from datetime import datetime
-from pathlib import Path
-from typing import Optional, Tuple, Dict, Any, List
+from typing import Any
+
 from openai import OpenAI
+
+from src.ai.prompt_loader import PromptLoader
 from src.logging.app_logger import ApplicationLogger
 
 logger = logging.getLogger(__name__)
@@ -16,8 +19,8 @@ class OpenAIClient:
 
     def __init__(
         self, api_key: str, model: str = "gpt-4o", max_tokens: int = 100,
-        temperature: float = 0.3, other_people: List[str] = None,
-        app_logger: Optional[ApplicationLogger] = None,
+        temperature: float = 0.3, other_people: list[str] | None = None,
+        app_logger: ApplicationLogger | None = None,
     ):
         self.client = OpenAI(api_key=api_key)
         self.model = model
@@ -25,73 +28,39 @@ class OpenAIClient:
         self.temperature = temperature
         self.other_people = other_people or []
         self.app_logger = app_logger
-        self.system_prompt = ""
-        self.user_prompt_template = ""
-        self.task_completion_system_prompt = ""
-        self.task_completion_user_prompt_template = ""
-        self.client_response_system_prompt = ""
-        self.client_response_user_prompt_template = ""
-        self._load_prompts()
+        self._prompts = PromptLoader()
 
-    def _load_prompts(self) -> None:
-        """Load system and user prompts from files."""
-        try:
-            # Calculate current date for dynamic injection
-            current_date = datetime.now().strftime("%d.%m.%Y")
+    @property
+    def system_prompt(self) -> str:
+        """Get the system prompt."""
+        return self._prompts.system_prompt
 
-            # Load system prompt
-            system_prompt_path = Path("prompts/system_prompt.txt")
-            if system_prompt_path.exists():
-                with open(system_prompt_path, 'r', encoding='utf-8') as f:
-                    system_prompt_template = f.read().strip()
-                # Inject current date into the system prompt
-                self.system_prompt = system_prompt_template.format(current_date=current_date)
-                logger.debug(f"System prompt loaded successfully with date: {current_date}")
-            else:
-                logger.warning("System prompt file not found")
-                exit(1)
+    @property
+    def user_prompt_template(self) -> str:
+        """Get the user prompt template."""
+        return self._prompts.user_prompt_template
 
-            # Load user prompt template
-            user_prompt_path = Path("prompts/user_prompt.txt")
-            if user_prompt_path.exists():
-                with open(user_prompt_path, 'r', encoding='utf-8') as f:
-                    self.user_prompt_template = f.read().strip()
-                logger.debug("User prompt template loaded successfully")
-            else:
-                logger.warning("User prompt template file not found")
-                exit(1)
+    @property
+    def task_completion_system_prompt(self) -> str:
+        """Get the task completion system prompt."""
+        return self._prompts.task_completion_system_prompt
 
-            # Load task completion prompts
-            task_completion_system_path = Path("prompts/task_completion_system_prompt.txt")
-            if task_completion_system_path.exists():
-                with open(task_completion_system_path, 'r', encoding='utf-8') as f:
-                    self.task_completion_system_prompt = f.read().strip()
-                logger.debug("Task completion system prompt loaded successfully")
+    @property
+    def task_completion_user_prompt_template(self) -> str:
+        """Get the task completion user prompt template."""
+        return self._prompts.task_completion_user_prompt_template
 
-            task_completion_user_path = Path("prompts/task_completion_user_prompt.txt")
-            if task_completion_user_path.exists():
-                with open(task_completion_user_path, 'r', encoding='utf-8') as f:
-                    self.task_completion_user_prompt_template = f.read().strip()
-                logger.debug("Task completion user prompt loaded successfully")
+    @property
+    def client_response_system_prompt(self) -> str:
+        """Get the client response system prompt."""
+        return self._prompts.client_response_system_prompt
 
-            # Load client response prompts
-            client_response_system_path = Path("prompts/client_response_system_prompt.txt")
-            if client_response_system_path.exists():
-                with open(client_response_system_path, 'r', encoding='utf-8') as f:
-                    self.client_response_system_prompt = f.read().strip()
-                logger.debug("Client response system prompt loaded successfully")
+    @property
+    def client_response_user_prompt_template(self) -> str:
+        """Get the client response user prompt template."""
+        return self._prompts.client_response_user_prompt_template
 
-            client_response_user_path = Path("prompts/client_response_user_prompt.txt")
-            if client_response_user_path.exists():
-                with open(client_response_user_path, 'r', encoding='utf-8') as f:
-                    self.client_response_user_prompt_template = f.read().strip()
-                logger.debug("Client response user prompt loaded successfully")
-
-        except Exception as e:
-            logger.error(f"Error loading prompts: {e}")
-            exit(1)
-
-    def process_email_to_todo(self, subject: str, first_line: str, body_excerpt: str) -> Optional[Tuple[str, str]]:
+    def process_email_to_todo(self, subject: str, first_line: str, body_excerpt: str) -> tuple[str, str] | None:
         """Process email content into RTM todo format using OpenAI."""
         request_id = None
         start_time = time.time()
@@ -101,7 +70,7 @@ class OpenAIClient:
             template = Template(self.user_prompt_template)
 
             # Create assignees list
-            assignees = ["self"] + self.other_people
+            assignees = ["self", *self.other_people]
             assignees_str = ", ".join(assignees)
 
             user_prompt = template.safe_substitute(
@@ -194,7 +163,7 @@ class OpenAIClient:
                 self.app_logger.log_ai_error(request_id, "email_to_todo", e, {"subject": subject})
             return self._create_fallback_todo(subject, first_line, body_excerpt), "self"
 
-    def _validate_todo_format(self, todo_text: str) -> Optional[str]:
+    def _validate_todo_format(self, todo_text: str) -> str | None:
         """Validate that the todo text follows RTM format: TODONAME !importance ^duedate"""
         try:
             # Clean up the response (remove quotes, extra whitespace)
@@ -265,7 +234,7 @@ class OpenAIClient:
             logger.debug(f"Error extracting sender name from '{sender}': {e}")
             return sender
 
-    def check_task_completion(self, original_task: str, assignee_response: str) -> Dict[str, Any]:
+    def check_task_completion(self, original_task: str, assignee_response: str) -> dict[str, Any]:
         """Check if a task is completed based on assignee's response."""
         request_id = None
         start_time = time.time()
@@ -327,7 +296,7 @@ class OpenAIClient:
                     )
 
                 try:
-                    json_response = json.loads(response_content)
+                    json_response: dict[str, Any] = json.loads(response_content)
                     return json_response
                 except json.JSONDecodeError as e:
                     logger.error(f"Failed to parse task completion response: {e}")
@@ -342,11 +311,11 @@ class OpenAIClient:
                 if not request_id:
                     request_id = str(time.time())
                 self.app_logger.log_ai_error(request_id, "task_completion", e, {"original_task": original_task})
-            return {"status": "unclear", "confidence": 1, "reason": f"Error: {str(e)}"}
+            return {"status": "unclear", "confidence": 1, "reason": f"Error: {e!s}"}
 
     def generate_client_response(self, original_subject: str, original_content: str,
                                  assigned_task: str, assignee_response: str,
-                                 last_sent_context: Optional[str] = None) -> Dict[str, str]:
+                                 last_sent_context: str | None = None) -> dict[str, str]:
         """Generate a response to send to the client based on completed task."""
         request_id = None
         start_time = time.time()
@@ -424,7 +393,7 @@ class OpenAIClient:
                     )
 
                 try:
-                    json_response = json.loads(response_content)
+                    json_response: dict[str, str] = json.loads(response_content)
                     return json_response
                 except json.JSONDecodeError as e:
                     logger.error(f"Failed to parse client response: {e}")
