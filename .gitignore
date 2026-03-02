@@ -209,3 +209,5 @@ prompts
 settings.json
 /data
 debug
+tools/analyze_code_config.bat
+code_analysis_results/
