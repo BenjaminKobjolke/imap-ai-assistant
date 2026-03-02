@@ -191,7 +191,7 @@ class MeetingCleanup:
 
         logger.info(f"Scanning '{folder}' for meetings older than {age_limit_hours}h (cutoff: {cutoff.isoformat()})")
 
-        messages = client.client.get_all_messages(folder=folder, limit=None)
+        messages = client.client.get_all_messages(folder=folder)
         if not messages:
             logger.info(f"No messages found in '{folder}'")
             return
@@ -255,7 +255,7 @@ class MeetingCleanup:
 
         logger.info(f"Scanning '{folder}' for today's meetings ({today})")
 
-        messages = client.client.get_all_messages(folder=folder, limit=None)
+        messages = client.client.get_all_messages(folder=folder)
         if not messages:
             print(f"\nNo messages found in '{folder}'")
             return
