@@ -2,23 +2,20 @@ from __future__ import annotations
 
 import logging
 import re
-import subprocess
-import webbrowser
 from datetime import datetime, date, timezone, timedelta
 from typing import Optional, Tuple
 
 from dateutil.tz import gettz, UTC as dateutil_UTC
 from dateutil.rrule import rrulestr
 
+from src.processors.meeting_display import (
+    extract_meeting_links as _extract_meeting_links_fn,
+    list_meetings,
+    safe_print,
+    show_meeting_detail as _show_detail_fn,
+)
+
 logger = logging.getLogger(__name__)
-
-
-def _safe_print(text):
-    """Print text safely on Windows console by replacing unencodable chars."""
-    try:
-        print(text)
-    except UnicodeEncodeError:
-        print(text.encode("ascii", errors="replace").decode("ascii"))
 
 
 class MeetingCleanup:
@@ -183,61 +180,9 @@ class MeetingCleanup:
             return False
 
     @staticmethod
-    def _extract_meeting_links(email_message, ics_text: str | None) -> list[dict[str, str]]:
-        """Extract meeting URLs from ICS data and email body.
-
-        Returns a list of dicts with 'type' and 'url' keys.
-        """
-        seen_urls: set[str] = set()
-        links: list[dict[str, str]] = []
-
-        # Base paths without an actual meeting identifier
-        _generic_paths = re.compile(
-            r'^https://teams\.microsoft\.com/l/meetup-join/?$'
-            r'|^https://teams\.microsoft\.com/?$'
-            r'|^https://(?:[\w-]+\.)?zoom\.us/j/?$'
-            r'|^https://meet\.google\.com/?$'
-        )
-
-        def _add(link_type: str, url: str) -> None:
-            if url in seen_urls:
-                return
-            if _generic_paths.match(url):
-                return
-            seen_urls.add(url)
-            links.append({"type": link_type, "url": url})
-
-        # 1. ICS: X-MICROSOFT-SKYPETEAMSMEETINGURL
-        if ics_text:
-            skype_m = re.search(r'X-MICROSOFT-SKYPETEAMSMEETINGURL[:]([^\r\n]+)', ics_text)
-            if skype_m:
-                _add("Teams", skype_m.group(1).strip())
-
-        # 2. Email plain-text body
-        body = ""
-        try:
-            body = email_message.get_body("text/plain") or ""
-        except Exception:
-            pass
-
-        url_patterns = [
-            ("Teams", r'https://teams\.microsoft\.com/[^\s<>"]+'),
-            ("Zoom", r'https://(?:[\w-]+\.)?zoom\.us/j/[^\s<>"]+'),
-            ("Google Meet", r'https://meet\.google\.com/[^\s<>"]+'),
-        ]
-        for link_type, pattern in url_patterns:
-            for m in re.finditer(pattern, body):
-                _add(link_type, m.group(0))
-
-        # 3. ICS LOCATION (if it looks like a URL)
-        if ics_text:
-            loc_m = re.search(r'LOCATION[:]([^\r\n]+)', ics_text)
-            if loc_m:
-                loc_val = loc_m.group(1).strip()
-                if loc_val.startswith("http"):
-                    _add("Location link", loc_val)
-
-        return links
+    def _extract_meeting_links(email_message: object, ics_text: str | None) -> list[dict[str, str]]:
+        """Extract meeting URLs from ICS data and email body."""
+        return _extract_meeting_links_fn(email_message, ics_text)
 
     @staticmethod
     def extract_meeting_datetime(email_message) -> Optional[datetime]:
@@ -436,97 +381,18 @@ class MeetingCleanup:
 
     @staticmethod
     def list_todays_meetings(client, config, target_date: date | None = None) -> None:
-        """List meetings for a given date with 1-based indices.
-
-        Args:
-            client: Connected EnhancedImapClient instance
-            config: ConfigManager instance
-            target_date: Date to list meetings for (default: today)
-        """
+        """List meetings for a given date with 1-based indices."""
         target = target_date or date.today()
         meetings = MeetingCleanup.get_todays_meetings(client, config, target_date=target)
-
-        if not meetings:
-            label = "today" if target == date.today() else str(target)
-            print(f"\nNo meetings for {label}")
-            return
-
-        if target == date.today():
-            header = f"Today's meetings ({target})"
-        else:
-            header = f"Meetings for {target}"
-
-        _safe_print(f"\n{header}:\n")
-        for m in meetings:
-            start_str = m["start"].strftime("%H:%M")
-            end_str = m["end"].strftime("%H:%M") if m["end"] else "??:??"
-            _safe_print(f"  {m['index']:>2}.  {start_str} - {end_str}  {m['subject']}")
-        _safe_print(f"\nTotal: {len(meetings)} meeting(s)")
+        list_meetings(meetings, target)
 
     @staticmethod
     def show_meeting_detail(client, config, index: int) -> None:
-        """Show full details for a specific meeting by 1-based index.
-
-        Extracts meeting links and copies/opens the first one found.
-        """
+        """Show full details for a specific meeting by 1-based index."""
         meetings = MeetingCleanup.get_todays_meetings(client, config)
 
         if not meetings or index < 1 or index > len(meetings):
-            _safe_print(f"\nInvalid meeting index: {index}. Use --todays-meetings to see available indices.")
+            safe_print(f"\nInvalid meeting index: {index}. Use --todays-meetings to see available indices.")
             return
 
-        m = meetings[index - 1]
-        start_str = m["start"].strftime("%H:%M")
-        end_str = m["end"].strftime("%H:%M") if m["end"] else "??:??"
-
-        organizer = m["parsed"].get("organizer") or "(unknown)"
-        location = m["parsed"].get("location") or "(none)"
-        links = MeetingCleanup._extract_meeting_links(m["email_message"], m["ics_text"])
-
-        _safe_print(f"\nMeeting #{index}: {m['subject']}\n")
-        _safe_print(f"  Time:       {start_str} - {end_str}")
-        _safe_print(f"  Organizer:  {organizer}")
-        _safe_print(f"  Location:   {location}")
-
-        if links:
-            _safe_print("\n  Links:")
-            for i, link in enumerate(links, 1):
-                _safe_print(f"    {i}. {link['type']}: {link['url']}")
-
-            _safe_print("\n  [c] Copy link to clipboard")
-            _safe_print("  [o] Open link in browser")
-            _safe_print("  [a] Abort")
-            choice = input("\n  > ").strip().lower()
-
-            if choice in ("c", "o"):
-                # Pick link index (skip prompt if only one link)
-                if len(links) == 1:
-                    link_idx = 0
-                else:
-                    idx_input = input(f"  Link number [1-{len(links)}]: ").strip()
-                    try:
-                        link_idx = int(idx_input) - 1
-                        if link_idx < 0 or link_idx >= len(links):
-                            _safe_print("  Invalid link number. Aborted.")
-                            return
-                    except ValueError:
-                        _safe_print("  Invalid input. Aborted.")
-                        return
-
-                url = links[link_idx]["url"]
-                if choice == "c":
-                    try:
-                        subprocess.run(["clip"], input=url, text=True, check=False)
-                        _safe_print("  Link copied to clipboard.")
-                    except Exception:
-                        _safe_print("  Failed to copy to clipboard.")
-                else:
-                    try:
-                        webbrowser.open(url)
-                        _safe_print("  Link opened in browser.")
-                    except Exception:
-                        _safe_print("  Failed to open browser.")
-            else:
-                _safe_print("  Aborted.")
-        else:
-            _safe_print("\n  Links:      (none found)")
+        _show_detail_fn(meetings[index - 1])
