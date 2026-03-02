@@ -22,6 +22,7 @@ uv run python main.py
 # Main execution modes
 uv run python main.py                # Process unread emails and responses
 uv run python main.py --test         # Test all connections
+uv run python main.py --test-email   # Send test email to self, verify arrival via IMAP
 uv run python main.py --status       # Show system status
 uv run python main.py --responses    # Process only assignee responses
 
@@ -31,6 +32,12 @@ uv run python main.py --inspect "Company/@BKToDo" --use-processor-account
 
 # List today's meetings with start/end times
 uv run python main.py --todays-meetings
+
+# List available Google Calendar IDs for configuration
+uv run python main.py --list-calendars
+
+# Process meeting invites interactively (requires Google Calendar setup)
+uv run python main.py --process-invites
 
 # Archive old meeting emails (uses ICS calendar date, not email date)
 uv run python main.py --cleanup-meetings
@@ -54,6 +61,9 @@ uv run python test_logger.py
 ```
 
 ## Coding Rules
+
+### Shell & CLI Rules
+- **No compound shell commands** — never chain commands with `&&`, `||`, or `;` (e.g., do NOT use `cd /d "..." && git log`). Run each command as a separate tool call instead.
 
 ### Common Rules (All Languages)
 - Use English for all code, comments, and documentation

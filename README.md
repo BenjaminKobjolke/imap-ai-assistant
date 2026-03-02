@@ -11,6 +11,7 @@ Built for multi-account email environments, it handles the full lifecycle from e
 - **Response Processing** — Monitors assignee replies to detect task completion using AI analysis
 - **Draft System** — Creates HTML draft emails for manual review instead of auto-sending client responses
 - **Client Response Generation** — AI generates professional responses matching the original language and tone
+- **Meeting Invite Processing** — Interactively review inbox invites, add to Google Calendar, and send RSVP acceptances
 - **Configurable Logging** — Rotating log files with separate categories for AI, email, and system events
 
 ## Prerequisites
@@ -20,6 +21,7 @@ Built for multi-account email environments, it handles the full lifecycle from e
 - OpenAI API key (GPT-4o recommended)
 - IMAP/SMTP email accounts
 - Remember the Milk account with email import enabled
+- Google Cloud project with Calendar API enabled (for `--process-invites`)
 
 ## Installation
 
@@ -48,41 +50,84 @@ Copy and edit `settings.json` with your credentials:
 | `allowed_senders` | Email whitelist — only these senders are processed |
 | `smtp` | Processor account credentials for sending emails |
 | `logging` | Log directory, file sizes, rotation settings |
-| `meetings` | Meeting cleanup folder paths and age limit |
+| `meetings` | Meeting cleanup folder paths, age limit, and Google Calendar settings |
 
 See [Configuration Reference](docs/features/configuration.md) for full details.
+
+## Google Calendar Setup
+
+The `--process-invites` command requires a Google Cloud project with Calendar API access. Follow these steps:
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com/) and create a new project (or select an existing one)
+2. Enable the **Google Calendar API** under *APIs & Services > Library*
+3. Configure the **OAuth consent screen** under *APIs & Services > OAuth consent screen*
+   - Choose "External" user type
+   - Fill in the required app information
+4. Create **OAuth 2.0 credentials** under *APIs & Services > Credentials*
+   - Click *Create Credentials > OAuth client ID*
+   - Application type: **Desktop app**
+   - Download the JSON file and save it as `credentials.json` in the project root
+5. Add an **Authorized redirect URI** in the OAuth client settings:
+   - `http://localhost:51032/`
+6. On first run of `--process-invites`, a browser window opens for Google account consent
+7. After authorization, a `token.json` file is created automatically for subsequent runs
+
+The credential and token paths are configurable in `settings.json` under `meetings.google_calendar`.
 
 ## Usage
 
 ```bash
-# Default: process unread emails AND assignee responses
+# No arguments: shows help
+uv run python main.py
+```
+
+### Command Line Arguments
+
+| Argument | Description |
+|----------|-------------|
+| `--test` | Test all connections and configurations (IMAP, SMTP, OpenAI) |
+| `--test-email` | Send a test email to self and verify it arrives via IMAP |
+| `--status` | Show system status summary |
+| `--responses` | Process only assignee responses |
+| `--inspect FOLDER` | Inspect emails in an IMAP folder (read-only debug tool) |
+| `--use-processor-account` | Use processor account instead of main account (for `--inspect`) |
+| `--todays-meetings` | List today's meetings with start/end times |
+| `--todays-meeting N` | Show details for today's meeting N (use `--todays-meetings` to see indices) |
+| `--meetings DATE` | List meetings for a date. Accepts: `today`, `tomorrow`, `5`, `12.03`, `12.03.2026` |
+| `--process-invites` | Interactively process meeting invites, add to Google Calendar, handle cancellations, send RSVP |
+| `--cleanup-meetings` | Archive old meeting emails based on their ICS calendar date |
+| `--setup-meetings` | Interactive setup for meeting calendar and conflict-check calendars |
+| `--list-calendars` | List available Google Calendar IDs for configuration |
+| `--set-meeting-calendar ID` | Set the Google Calendar ID used for adding events |
+| `--set-meeting-free-check-calendar ID` | Add a Google Calendar ID to check for scheduling conflicts |
+| `--remove-meeting-free-check-calendar ID` | Remove a Google Calendar ID from the conflict-check list |
+| `--workflow [NAME]` | Run a workflow by name, or list available workflows if no name given |
+| `--config PATH` | Path to configuration file (default: `settings.json`) |
+
+### Examples
+
+```bash
+# Default workflow: process unread emails AND assignee responses
 call start.bat
 # or: uv run python main.py
 
-# Test all connections (IMAP, SMTP, OpenAI)
+# Test connections
 uv run python main.py --test
 
-# Show system status summary
-uv run python main.py --status
-
-# Process only assignee responses
-uv run python main.py --responses
-
-# Inspect emails in an IMAP folder (read-only debug tool)
+# Inspect emails in a folder (read-only)
 uv run python main.py --inspect INBOX
 uv run python main.py --inspect "Company/@BKToDo" --use-processor-account
 
-# List today's meetings with start/end times
+# Meetings
 uv run python main.py --todays-meetings
-
-# Show details for a specific today's meeting (by index)
 uv run python main.py --todays-meeting 2
-
-# List meetings for any date (today, tomorrow, 5, 12.03, 12.03.2026)
 uv run python main.py --meetings tomorrow
 uv run python main.py --meetings 12.03
 
-# Archive old meeting emails (based on ICS calendar date)
+# Process invites (accept/decline/handle cancellations)
+uv run python main.py --process-invites
+
+# Archive old meeting emails
 uv run python main.py --cleanup-meetings
 
 # Use a custom config file
@@ -104,6 +149,8 @@ imap-ai-assistant/
 ├── src/
 │   ├── ai/
 │   │   └── openai_client.py         # OpenAI API integration
+│   ├── calendar/
+│   │   └── google_calendar_client.py # Google Calendar OAuth & API
 │   ├── config/
 │   │   └── settings.py              # Configuration manager
 │   ├── email/
@@ -117,6 +164,7 @@ imap-ai-assistant/
 │       ├── response_processor.py    # Assignee response handling
 │       ├── client_response_generator.py  # Draft email creation
 │       ├── email_inspector.py       # Email inspection/debug tool
+│       ├── invite_processor.py      # Meeting invite processing
 │       ├── meeting_cleanup.py       # Meeting email archival
 │       └── relationship_analyzer.py # Tone/formality detection
 ├── prompts/                         # AI prompt templates
@@ -145,5 +193,6 @@ Detailed documentation for each feature is available in [`docs/features/`](docs/
 - [AI Integration](docs/features/ai-integration.md)
 - [Logging](docs/features/logging.md)
 - [Email Inspection](docs/features/email-inspection.md)
+- [Meeting Invite Processing](docs/features/process-invites.md)
 - [Meeting Cleanup](docs/features/meeting-cleanup.md)
 - [Configuration](docs/features/configuration.md)

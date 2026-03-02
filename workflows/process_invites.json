@@ -1,0 +1,7 @@
+{
+  "name": "Process Meeting Invites",
+  "description": "Scan inbox for calendar invites, check Google Calendar, and interactively accept/decline/skip",
+  "steps": [
+    {"action": "process_invites"}
+  ]
+}

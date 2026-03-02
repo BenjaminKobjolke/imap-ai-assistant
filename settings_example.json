@@ -1,0 +1,90 @@
+{
+  "accounts": [
+    {
+      "name": "John Doe",
+      "email_address": "john.doe@example.com",
+      "server": "imap.example.com",
+      "username": "john.doe",
+      "password": "your-imap-password",
+      "port": 993,
+      "use_ssl": true,
+      "drafts_folder": "Drafts",
+      "sent_folder": "Sent",
+      "smtp_server": "smtp.example.com",
+      "smtp_port": 587,
+      "smtp_use_tls": true,
+      "smtp_username": "john.doe",
+      "smtp_password": "your-smtp-password"
+    }
+  ],
+  "sent_search_limit": 100,
+  "openai": {
+    "api_key": "sk-proj-your-openai-api-key",
+    "model": "gpt-4o",
+    "max_tokens": 6000,
+    "temperature": 0.1
+  },
+  "remember_the_milk": {
+    "email_address": "yourname+abc123@rmilk.com"
+  },
+  "processing": {
+    "my_own_tasks": {
+      "target_folder": "Company/@MyToDo",
+      "additional_subject_tag": "#MyToDo #IMAP-Assistant"
+    },
+    "others": {
+      "alice": {
+        "target_folder": "Company/@WaitsForTaskDone",
+        "additional_subject_tag": "#with_alice #IMAP-Assistant",
+        "email_address": "alice@example.com"
+      },
+      "bob": {
+        "target_folder": "Company/@WaitsForTaskDone",
+        "additional_subject_tag": "#with_bob #IMAP-Assistant",
+        "email_address": "bob@example.com"
+      }
+    }
+  },
+  "allowed_senders": ["john.doe@example.com"],
+  "smtp": {
+    "server": "smtp.processor-account.com",
+    "port": 587,
+    "use_tls": true,
+    "username": "processor-user",
+    "password": "processor-password",
+    "from_email": "ai@processor-account.com"
+  },
+  "logging": {
+    "enabled": true,
+    "log_dir": "logs",
+    "max_file_size_mb": 10,
+    "backup_count": 5,
+    "categories": {
+      "ai": {
+        "enabled": true,
+        "level": "DEBUG"
+      },
+      "email": {
+        "enabled": true,
+        "level": "INFO"
+      },
+      "system": {
+        "enabled": true,
+        "level": "INFO"
+      }
+    }
+  },
+  "meetings": {
+    "folder": "Company/@Meetings",
+    "age_limit_hours": 24,
+    "archive_folder": "Company/@OldMeetings",
+    "invite_scan_folder": "INBOX",
+    "rsvp_send_directly": false,
+    "google_calendar": {
+      "credentials_path": "credentials.json",
+      "token_path": "token.json",
+      "calendar_id": "primary",
+      "free_check_calendars": []
+    }
+  }
+}

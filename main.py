@@ -12,6 +12,8 @@ logging.basicConfig(
 logging.getLogger('imap_client_lib').setLevel(logging.WARNING)
 logging.getLogger('urllib3').setLevel(logging.WARNING)
 logging.getLogger('requests').setLevel(logging.WARNING)
+logging.getLogger('googleapiclient').setLevel(logging.WARNING)
+logging.getLogger('google.auth').setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 
@@ -24,15 +26,29 @@ def main():
     parser.add_argument('--inspect', metavar='FOLDER', help='Inspect emails in the given IMAP folder (e.g. INBOX)')
     parser.add_argument('--use-processor-account', action='store_true',
                         help='Use processor account instead of main account (for --inspect)')
+    parser.add_argument('--setup-meetings', action='store_true',
+                        help='Interactive setup for meeting calendar and conflict-check calendars')
+    parser.add_argument('--list-calendars', action='store_true',
+                        help='List available Google Calendar IDs for configuration')
+    parser.add_argument('--process-invites', action='store_true',
+                        help='Interactively process meeting invites and add to Google Calendar')
     parser.add_argument('--cleanup-meetings', action='store_true',
                         help='Archive old meeting emails based on their calendar date')
     parser.add_argument('--meetings', metavar='DATE',
                         help="List meetings for a date. Accepts: today, tomorrow, 5, 12.03, 12.03.2026")
+    parser.add_argument('--test-email', action='store_true',
+                        help='Send a test email and verify it arrives via IMAP')
     parser.add_argument('--todays-meetings', action='store_true', help="List today's meetings with times")
     parser.add_argument('--todays-meeting', type=int, metavar='N',
                         help="Show details for today's meeting N (use --todays-meetings to see indices)")
     parser.add_argument('--workflow', nargs='?', const='__list__', metavar='NAME',
                         help="Run a workflow by name, or list available workflows if no name given")
+    parser.add_argument('--set-meeting-calendar', metavar='ID',
+                        help='Set the Google Calendar ID used for adding events')
+    parser.add_argument('--set-meeting-free-check-calendar', metavar='ID',
+                        help='Add a Google Calendar ID to check for scheduling conflicts')
+    parser.add_argument('--remove-meeting-free-check-calendar', metavar='ID',
+                        help='Remove a Google Calendar ID from the conflict-check list')
     parser.add_argument('--config', default='settings.json', help='Path to configuration file')
 
     args = parser.parse_args()
@@ -48,6 +64,12 @@ def main():
             logger.info("✅ All systems are ready!")
         else:
             logger.error("❌ Some systems have issues. Please check the logs.")
+        return
+
+    if args.test_email:
+        # Send a test email and verify it arrives
+        logger.info("📧 Testing email send/receive...")
+        processor.test_email()
         return
 
     if args.status:
@@ -69,6 +91,35 @@ def main():
         # Inspect emails in a folder (read-only debug tool)
         logger.info(f"🔍 Inspecting folder: {args.inspect}")
         processor.inspect_folder(args.inspect, use_processor_account=args.use_processor_account)
+        return
+
+    if args.setup_meetings:
+        processor.setup_meetings()
+        return
+
+    if args.set_meeting_calendar:
+        processor.set_meeting_calendar(args.set_meeting_calendar)
+        return
+
+    if args.set_meeting_free_check_calendar:
+        processor.set_meeting_free_check_calendar(args.set_meeting_free_check_calendar)
+        return
+
+    if args.remove_meeting_free_check_calendar:
+        processor.remove_meeting_free_check_calendar(args.remove_meeting_free_check_calendar)
+        return
+
+    if args.list_calendars:
+        # List available Google Calendar IDs
+        logger.info("Listing Google Calendars...")
+        processor.list_calendars()
+        return
+
+    if args.process_invites:
+        # Process meeting invites interactively
+        logger.info("📨 Processing meeting invites...")
+        processor.process_invites()
+        logger.info("✅ Invite processing completed")
         return
 
     if args.cleanup_meetings:

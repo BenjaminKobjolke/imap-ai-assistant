@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import logging
+import time
+from datetime import datetime
 from pathlib import Path
 
 from src.config.settings import ConfigManager
@@ -11,6 +13,7 @@ from src.ai.openai_client import OpenAIClient
 from src.processors.response_processor import ResponseProcessor
 from src.processors.task_processor import TaskProcessor
 from src.processors.email_inspector import EmailInspector
+from src.processors.invite_processor import InviteProcessor
 from src.processors.meeting_cleanup import MeetingCleanup
 from src.logging.app_logger import ApplicationLogger
 
@@ -259,6 +262,197 @@ class EmailProcessor:
         finally:
             client.disconnect()
 
+    def setup_meetings(self) -> None:
+        """Interactive setup for meeting calendar and conflict-check calendars."""
+        from src.calendar.google_calendar_client import GoogleCalendarClient
+
+        gcal_client = GoogleCalendarClient(
+            credentials_path=self.config.google_calendar_credentials_path,
+            token_path=self.config.google_calendar_token_path,
+            calendar_id=self.config.google_calendar_id,
+        )
+        if not gcal_client.authenticate():
+            logger.error("Failed to authenticate with Google Calendar")
+            return
+
+        calendars = gcal_client.list_calendars()
+        if not calendars:
+            print("No calendars found.")
+            return
+
+        cal_names = {c.get("id", ""): c.get("summary", "(unnamed)") for c in calendars}
+
+        selected_calendar = self._setup_meeting_calendar(calendars, cal_names)
+        selected_checks = self._setup_free_check_calendars(calendars, cal_names)
+
+        print("\nSetup complete.")
+        print(f"  Meeting calendar: {cal_names.get(selected_calendar, selected_calendar)}")
+        if selected_checks:
+            names = ", ".join(cal_names.get(c, c) for c in selected_checks)
+            print(f"  Conflict-check:   {names}")
+        else:
+            print("  Conflict-check:   (none)")
+
+    def _setup_meeting_calendar(self, calendars: list[dict], cal_names: dict[str, str]) -> str:
+        """Step 1: Let the user pick the calendar for adding events."""
+        current_id = self.config.google_calendar_id
+        current_name = cal_names.get(current_id, current_id)
+
+        print("\nMeeting Calendar")
+        print(f"Current: {current_name} ({current_id})")
+        print()
+
+        for i, cal in enumerate(calendars, 1):
+            cal_id = cal.get("id", "")
+            name = cal.get("summary", "(unnamed)")
+            marker = " <-- active" if cal_id == current_id else ""
+            print(f"  {i}. {name} -- {cal_id}{marker}")
+
+        print("\nPick a number to change, or press Enter to keep current:")
+
+        while True:
+            choice = input("  > ").strip()
+            if choice == "":
+                return current_id
+            if choice.isdigit() and 1 <= int(choice) <= len(calendars):
+                selected = calendars[int(choice) - 1]
+                new_id = selected["id"]
+                self.config.save_setting(["meetings", "google_calendar", "calendar_id"], new_id)
+                print(f"  Saved: {selected.get('summary', '')} ({new_id})")
+                return new_id
+            print("  Invalid choice. Try again.")
+
+    def _setup_free_check_calendars(self, calendars: list[dict], cal_names: dict[str, str]) -> list[str]:
+        """Step 2: Let the user toggle which calendars are checked for conflicts."""
+        current_checks = set(self.config.free_check_calendars)
+
+        print("\nConflict-Check Calendars")
+
+        while True:
+            if current_checks:
+                names = ", ".join(cal_names.get(c, c) for c in current_checks)
+                print(f"Currently checked: {names}")
+            else:
+                print("Currently checked: (none)")
+            print()
+
+            for i, cal in enumerate(calendars, 1):
+                cal_id = cal.get("id", "")
+                name = cal.get("summary", "(unnamed)")
+                checked = "x" if cal_id in current_checks else " "
+                print(f"  {i}. [{checked}] {name} -- {cal_id}")
+
+            print("\nToggle a number, or press Enter when done:")
+
+            choice = input("  > ").strip()
+            if choice == "":
+                result = list(current_checks)
+                self.config.save_setting(
+                    ["meetings", "google_calendar", "free_check_calendars"], result,
+                )
+                return result
+            if choice.isdigit() and 1 <= int(choice) <= len(calendars):
+                cal_id = calendars[int(choice) - 1].get("id", "")
+                if cal_id in current_checks:
+                    current_checks.discard(cal_id)
+                else:
+                    current_checks.add(cal_id)
+                print()
+            else:
+                print("  Invalid input. Enter a single number.\n")
+
+    def set_meeting_calendar(self, calendar_id: str) -> None:
+        """Set the Google Calendar ID used for adding events."""
+        if self.config.save_setting(["meetings", "google_calendar", "calendar_id"], calendar_id):
+            print(f"Meeting calendar set to: {calendar_id}")
+        else:
+            print("Failed to save setting.")
+
+    def set_meeting_free_check_calendar(self, calendar_id: str) -> None:
+        """Add a calendar ID to the list of calendars checked for conflicts."""
+        calendars = list(self.config.free_check_calendars)
+        if calendar_id in calendars:
+            print(f"Calendar already in free-check list: {calendar_id}")
+            return
+        calendars.append(calendar_id)
+        if self.config.save_setting(["meetings", "google_calendar", "free_check_calendars"], calendars):
+            print(f"Added to free-check calendars: {calendar_id}")
+        else:
+            print("Failed to save setting.")
+
+    def remove_meeting_free_check_calendar(self, calendar_id: str) -> None:
+        """Remove a calendar ID from the list of calendars checked for conflicts."""
+        calendars = list(self.config.free_check_calendars)
+        if calendar_id not in calendars:
+            print(f"Calendar not in free-check list: {calendar_id}")
+            return
+        calendars.remove(calendar_id)
+        if self.config.save_setting(["meetings", "google_calendar", "free_check_calendars"], calendars):
+            print(f"Removed from free-check calendars: {calendar_id}")
+        else:
+            print("Failed to save setting.")
+
+    def list_calendars(self) -> None:
+        """List all available Google Calendars for the authenticated user."""
+        from src.calendar.google_calendar_client import GoogleCalendarClient
+
+        gcal_client = GoogleCalendarClient(
+            credentials_path=self.config.google_calendar_credentials_path,
+            token_path=self.config.google_calendar_token_path,
+            calendar_id=self.config.google_calendar_id,
+        )
+        if not gcal_client.authenticate():
+            logger.error("Failed to authenticate with Google Calendar")
+            return
+
+        calendars = gcal_client.list_calendars()
+        if not calendars:
+            print("No calendars found.")
+            return
+
+        configured = self.config.google_calendar_id
+        print(f"\nConfigured calendar_id: {configured}\n")
+        print(f"{'#':<4} {'Name':<40} {'ID':<50} {'Primary'}")
+        print("-" * 100)
+        for i, cal in enumerate(calendars, 1):
+            summary = cal.get("summary", "(unnamed)")
+            cal_id = cal.get("id", "")
+            primary = "yes" if cal.get("primary") else ""
+            marker = " <-- active" if cal_id == configured else ""
+            print(f"{i:<4} {summary:<40} {cal_id:<50} {primary}{marker}")
+
+    def process_invites(self) -> None:
+        """Interactively process meeting invite emails with Google Calendar."""
+        account_config = self.config.get_first_account()
+        if not account_config:
+            logger.error("No main account configuration found")
+            return
+
+        from src.calendar.google_calendar_client import GoogleCalendarClient
+
+        gcal_client = GoogleCalendarClient(
+            credentials_path=self.config.google_calendar_credentials_path,
+            token_path=self.config.google_calendar_token_path,
+            calendar_id=self.config.google_calendar_id,
+        )
+        if not gcal_client.authenticate():
+            logger.error("Failed to authenticate with Google Calendar")
+            return
+
+        client = EnhancedImapClient(account_config)
+        if not client.connect():
+            logger.error("Failed to connect to IMAP server")
+            return
+
+        try:
+            InviteProcessor.process_invites(
+                client, self.config, gcal_client, account_config,
+            )
+        except Exception as e:
+            logger.error(f"Error processing invites: {e}")
+        finally:
+            client.disconnect()
+
     def todays_meeting_detail(self, index: int) -> None:
         """Show details for a specific today's meeting by index."""
         account_config = self.config.get_first_account()
@@ -319,6 +513,70 @@ class EmailProcessor:
             MeetingCleanup.list_todays_meetings(client, self.config)
         except Exception as e:
             logger.error(f"Error listing today's meetings: {e}")
+        finally:
+            client.disconnect()
+
+    def test_email(self) -> None:
+        """Send a test email to self and verify it arrives via IMAP."""
+        account_config = self.config.get_first_account()
+        if not account_config:
+            print("SEND: ERROR - No main account configuration found")
+            return
+
+        email_address = account_config.get("email_address", "")
+        if not email_address:
+            print("SEND: ERROR - No email_address configured for the first account")
+            return
+
+        smtp_cfg = self.config.get_account_smtp_config(account_config)
+        if not smtp_cfg:
+            print("SEND: ERROR - No SMTP configuration available for the first account")
+            return
+
+        smtp_client = SmtpClient(smtp_cfg)
+        marker = f"IMAP-AI-Assistant-Test-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+
+        # Step 1: Send test email
+        print(f"SEND: Sending test email to {email_address} ...")
+        try:
+            smtp_client.send_email(
+                to_email=email_address,
+                subject=marker,
+                body="This is an automated test email from IMAP AI Assistant.",
+                from_email=smtp_cfg.get("from_email", ""),
+            )
+            print("SEND: OK")
+        except Exception as e:
+            print(f"SEND: ERROR - {e}")
+            return
+
+        # Step 2: Connect IMAP and poll for arrival
+        print("RECEIVE: Connecting to IMAP ...")
+        client = EnhancedImapClient(account_config)
+        if not client.connect():
+            print("RECEIVE: ERROR - Failed to connect to IMAP server")
+            return
+
+        try:
+            max_attempts = 5
+            poll_interval = 3
+            for attempt in range(1, max_attempts + 1):
+                time.sleep(poll_interval)
+                print(f"RECEIVE: Checking for test email (attempt {attempt}/{max_attempts}) ...")
+                messages = client.client.get_messages(
+                    search_criteria=["UNSEEN", "SUBJECT", marker],
+                    folder="INBOX",
+                )
+                if messages:
+                    msg_id = messages[0][0]
+                    client.client.delete_message(msg_id)
+                    print("RECEIVE: OK")
+                    return
+
+            print(
+                "RECEIVE: ERROR - Test email was sent but could not be found in INBOX. "
+                "Check IMAP settings or allow more delivery time."
+            )
         finally:
             client.disconnect()
 
@@ -400,6 +658,7 @@ class EmailProcessor:
             "process_assignee_responses": self.process_assignee_responses,
             "cleanup_meetings": self.cleanup_meetings,
             "todays_meetings": self.todays_meetings,
+            "process_invites": self.process_invites,
         }
 
     def list_workflows(self) -> None:
@@ -469,7 +728,11 @@ class EmailProcessor:
 
             logger.info(f"Step {i}/{len(steps)}: {action}")
             try:
-                method()
+                params = step.get("params", {})
+                if params:
+                    method(**params)
+                else:
+                    method()
             except Exception as e:
                 logger.error(f"Step {i} ({action}) failed: {e}")
 

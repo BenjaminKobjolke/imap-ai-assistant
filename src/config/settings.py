@@ -226,3 +226,73 @@ class ConfigManager:
     def meetings_archive_folder(self) -> str:
         """Get the IMAP folder path for archived meeting emails."""
         return self._config.get("meetings", {}).get("archive_folder", "Company/@OldMeetings")
+
+    @property
+    def meetings_invite_scan_folder(self) -> str:
+        """Get the IMAP folder to scan for meeting invites."""
+        return self._config.get("meetings", {}).get("invite_scan_folder", "INBOX")
+
+    @property
+    def meetings_rsvp_send_directly(self) -> bool:
+        """Whether to send RSVP directly via SMTP instead of saving as draft."""
+        return self._config.get("meetings", {}).get("rsvp_send_directly", False)
+
+    @property
+    def google_calendar_credentials_path(self) -> str:
+        """Get the path to Google Calendar OAuth credentials file."""
+        return self._config.get("meetings", {}).get("google_calendar", {}).get("credentials_path", "credentials.json")
+
+    @property
+    def google_calendar_token_path(self) -> str:
+        """Get the path to the stored Google Calendar OAuth token."""
+        return self._config.get("meetings", {}).get("google_calendar", {}).get("token_path", "token.json")
+
+    @property
+    def google_calendar_id(self) -> str:
+        """Get the Google Calendar ID to import events into."""
+        return self._config.get("meetings", {}).get("google_calendar", {}).get("calendar_id", "primary")
+
+    @property
+    def free_check_calendars(self) -> list[str]:
+        """Calendar IDs to check for scheduling conflicts during invite processing."""
+        return self._config.get("meetings", {}).get("google_calendar", {}).get("free_check_calendars", [])
+
+    def save_setting(self, key_path: list[str], value: object) -> bool:
+        """Update a nested config key and persist to settings.json."""
+        node = self._config
+        for key in key_path[:-1]:
+            node = node.setdefault(key, {})
+        node[key_path[-1]] = value
+
+        try:
+            with open(Path(self.config_path), "w", encoding="utf-8") as f:
+                json.dump(self._config, f, indent=2, ensure_ascii=False)
+            logger.info("Saved setting %s = %s", ".".join(key_path), value)
+            return True
+        except Exception as e:
+            logger.error("Failed to save setting: %s", e)
+            return False
+
+    def get_account_smtp_config(self, account_config: Optional[Dict] = None) -> Optional[Dict]:
+        """Get SMTP configuration from a specific account entry.
+
+        Falls back to the global smtp config if the account has no SMTP settings.
+        """
+        if account_config is None:
+            account_config = self.get_first_account()
+
+        if not account_config:
+            return self.smtp_config or None
+
+        smtp_server = account_config.get("smtp_server")
+        if not smtp_server:
+            return self.smtp_config or None
+
+        return {
+            "server": smtp_server,
+            "port": account_config.get("smtp_port", 587),
+            "use_tls": account_config.get("smtp_use_tls", True),
+            "username": account_config.get("smtp_username", account_config.get("username", "")),
+            "password": account_config.get("smtp_password", account_config.get("password", "")),
+            "from_email": account_config.get("email_address", ""),
+        }
