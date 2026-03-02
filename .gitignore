@@ -207,6 +207,8 @@ marimo/_lsp/
 __marimo__/
 prompts
 settings.json
+credentials.json
+token.json
 /data
 debug
 tools/analyze_code_config.bat
