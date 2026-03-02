@@ -136,6 +136,7 @@ imap-ai-assistant/
 
 Detailed documentation for each feature is available in [`docs/features/`](docs/features/):
 
+- [Default Workflow](docs/features/default-workflow.md)
 - [Email-to-Todo Conversion](docs/features/email-to-todo-conversion.md)
 - [Task Assignment & Routing](docs/features/task-assignment-routing.md)
 - [Response Processing](docs/features/response-processing.md)

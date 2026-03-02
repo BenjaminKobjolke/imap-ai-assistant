@@ -1,0 +1,8 @@
+{
+  "name": "Task E-Mails to Remember the Milk ToDos",
+  "description": "Process unread emails into RTM todos, then check assignee responses",
+  "steps": [
+    {"action": "process_unread_emails"},
+    {"action": "process_assignee_responses"}
+  ]
+}

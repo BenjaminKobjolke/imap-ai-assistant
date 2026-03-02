@@ -357,7 +357,7 @@ class MeetingCleanup:
                 logger.error(f"Error processing '{subject}': {e}")
                 skipped += 1
 
-        print(f"\nMeeting cleanup complete:")
+        print("\nMeeting cleanup complete:")
         print(f"  Checked: {total} | Moved: {moved} | Kept: {kept} | Skipped: {skipped}")
 
     @staticmethod

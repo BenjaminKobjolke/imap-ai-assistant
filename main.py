@@ -22,19 +22,24 @@ def main():
     parser.add_argument('--status', action='store_true', help='Show status summary')
     parser.add_argument('--responses', action='store_true', help='Process assignee responses')
     parser.add_argument('--inspect', metavar='FOLDER', help='Inspect emails in the given IMAP folder (e.g. INBOX)')
-    parser.add_argument('--use-processor-account', action='store_true', help='Use processor account instead of main account (for --inspect)')
-    parser.add_argument('--cleanup-meetings', action='store_true', help='Archive old meeting emails based on their calendar date')
+    parser.add_argument('--use-processor-account', action='store_true',
+                        help='Use processor account instead of main account (for --inspect)')
+    parser.add_argument('--cleanup-meetings', action='store_true',
+                        help='Archive old meeting emails based on their calendar date')
     parser.add_argument('--meetings', metavar='DATE',
                         help="List meetings for a date. Accepts: today, tomorrow, 5, 12.03, 12.03.2026")
     parser.add_argument('--todays-meetings', action='store_true', help="List today's meetings with times")
-    parser.add_argument('--todays-meeting', type=int, metavar='N', help="Show details for today's meeting N (use --todays-meetings to see indices)")
+    parser.add_argument('--todays-meeting', type=int, metavar='N',
+                        help="Show details for today's meeting N (use --todays-meetings to see indices)")
+    parser.add_argument('--workflow', nargs='?', const='__list__', metavar='NAME',
+                        help="Run a workflow by name, or list available workflows if no name given")
     parser.add_argument('--config', default='settings.json', help='Path to configuration file')
-    
+
     args = parser.parse_args()
-    
+
     # Initialize the email processor
     processor = EmailProcessor(args.config)
-    
+
     if args.test:
         # Test all connections
         logger.info("🔍 Testing all connections and configurations...")
@@ -44,7 +49,7 @@ def main():
         else:
             logger.error("❌ Some systems have issues. Please check the logs.")
         return
-    
+
     if args.status:
         # Show status summary
         status = processor.get_status_summary()
@@ -52,7 +57,7 @@ def main():
         for key, value in status.items():
             logger.info(f"  {key}: {value}")
         return
-    
+
     if args.responses:
         # Process assignee responses
         logger.info("🔄 Processing assignee responses...")
@@ -88,19 +93,15 @@ def main():
         processor.todays_meetings()
         return
 
-    # Default action: process unread emails AND assignee responses
-    logger.info("🚀 Starting IMAP AI Assistant")
-    
-    # Process regular emails first
-    processor.process_unread_emails()
-    logger.info("✅ Regular email processing completed")
-    
-    # Then process assignee responses
-    logger.info("🔄 Processing assignee responses...")
-    processor.process_assignee_responses()
-    logger.info("✅ Response processing completed")
-    
-    logger.info("✅ All email processing completed")
+    if args.workflow is not None:
+        if args.workflow == '__list__':
+            processor.list_workflows()
+        else:
+            processor.run_workflow(args.workflow)
+        return
+
+    # No arguments: show help
+    parser.print_help()
 
 
 if __name__ == "__main__":
