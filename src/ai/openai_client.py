@@ -97,7 +97,6 @@ class OpenAIClient:
         start_time = time.time()
 
         try:
-            print(f"User prompt template: {self.user_prompt_template}")
             from string import Template
             template = Template(self.user_prompt_template)
 

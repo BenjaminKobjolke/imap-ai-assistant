@@ -27,8 +27,6 @@ class ApplicationLogger:
         # Create log directory if it doesn't exist
         self.log_dir.mkdir(parents=True, exist_ok=True)
 
-        # Configure root logger to suppress duplicate logs
-        logging.getLogger().setLevel(logging.WARNING)
 
     def get_logger(self, category: str) -> logging.Logger:
         """
