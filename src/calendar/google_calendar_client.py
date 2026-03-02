@@ -105,6 +105,32 @@ class GoogleCalendarClient:
             logger.error("Failed to delete event from Google Calendar: %s", e)
             return False
 
+    def create_event(self, summary: str, start_dt: datetime, end_dt: datetime) -> str | None:
+        """Create a calendar event from explicit start/end datetimes.
+
+        Uses Europe/Berlin timezone. Returns the Google Calendar event ID on success, None on failure.
+        """
+        if not self.service:
+            logger.error("Google Calendar service not initialized")
+            return None
+
+        event_body = {
+            "summary": summary,
+            "start": {"dateTime": start_dt.isoformat(), "timeZone": "Europe/Berlin"},
+            "end": {"dateTime": end_dt.isoformat(), "timeZone": "Europe/Berlin"},
+        }
+
+        try:
+            result = self.service.events().insert(
+                calendarId=self.calendar_id, body=event_body, sendUpdates="none",
+            ).execute()
+            event_id = result.get("id")
+            logger.info("Event created in Google Calendar, id=%s", event_id)
+            return event_id
+        except Exception as e:
+            logger.error("Failed to create event in Google Calendar: %s", e)
+            return None
+
     def add_event_from_ics(self, ics_data: bytes) -> str | None:
         """Import an event from raw ICS data into Google Calendar.
 

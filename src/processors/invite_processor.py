@@ -78,8 +78,8 @@ class InviteProcessor:
                 selected = calendars[int(choice) - 1]
                 gcal_client.calendar_id = selected["id"]
                 config.save_setting(
-                    ["meetings", "google_calendar", "calendar_id"],
-                    selected["id"],
+                    ["meetings", "google_calendar", "accepts_meetings_calendar"],
+                    {"name": selected.get("summary", ""), "id": selected["id"]},
                 )
                 _safe_print(f"  Saved: {selected.get('summary', '')} ({selected['id']})")
                 return
@@ -329,7 +329,7 @@ class InviteProcessor:
         query_start = dtstart - buffer
         query_end = invite_end + buffer
 
-        calendar_ids = [gcal_client.calendar_id, *config.free_check_calendars]
+        calendar_ids = [gcal_client.calendar_id, *config.free_check_calendar_ids]
 
         # Build a name lookup from available calendars
         cal_names: dict[str, str] = {}

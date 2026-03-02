@@ -49,6 +49,10 @@ def main():
                         help='Add a Google Calendar ID to check for scheduling conflicts')
     parser.add_argument('--remove-meeting-free-check-calendar', metavar='ID',
                         help='Remove a Google Calendar ID from the conflict-check list')
+    parser.add_argument('--add-date', nargs='+', metavar='ARG',
+                        help='Create event: TITLE [DATE] [START[-END]] [@CALENDAR]')
+    parser.add_argument('--set-add-date-calendar', metavar='ID',
+                        help='Set default Google Calendar for --add-date events')
     parser.add_argument('--config', default='settings.json', help='Path to configuration file')
 
     args = parser.parse_args()
@@ -107,6 +111,14 @@ def main():
 
     if args.remove_meeting_free_check_calendar:
         processor.remove_meeting_free_check_calendar(args.remove_meeting_free_check_calendar)
+        return
+
+    if args.add_date:
+        processor.add_date(args.add_date)
+        return
+
+    if args.set_add_date_calendar:
+        processor.set_add_date_calendar(args.set_add_date_calendar)
         return
 
     if args.list_calendars:

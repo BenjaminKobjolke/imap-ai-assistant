@@ -248,14 +248,38 @@ class ConfigManager:
         return self._config.get("meetings", {}).get("google_calendar", {}).get("token_path", "token.json")
 
     @property
-    def google_calendar_id(self) -> str:
+    def accepts_meetings_calendar_id(self) -> str:
         """Get the Google Calendar ID to import events into."""
-        return self._config.get("meetings", {}).get("google_calendar", {}).get("calendar_id", "primary")
+        return self._config.get("meetings", {}).get("google_calendar", {}).get("accepts_meetings_calendar", {}).get("id", "primary")
 
     @property
-    def free_check_calendars(self) -> list[str]:
-        """Calendar IDs to check for scheduling conflicts during invite processing."""
+    def accepts_meetings_calendar_name(self) -> str:
+        """Get the display name of the calendar used for accepting meetings."""
+        return self._config.get("meetings", {}).get("google_calendar", {}).get("accepts_meetings_calendar", {}).get("name", "")
+
+    @property
+    def free_check_calendars(self) -> list[dict[str, str]]:
+        """Calendar entries to check for scheduling conflicts during invite processing."""
         return self._config.get("meetings", {}).get("google_calendar", {}).get("free_check_calendars", [])
+
+    @property
+    def add_date_calendar_id(self) -> str:
+        """Get the Google Calendar ID for --add-date events, falling back to accepts_meetings."""
+        gcal = self._config.get("meetings", {}).get("google_calendar", {})
+        explicit = gcal.get("add_date_calendar", {}).get("id", "")
+        return explicit or self.accepts_meetings_calendar_id
+
+    @property
+    def add_date_calendar_name(self) -> str:
+        """Get the display name of the calendar for --add-date events."""
+        gcal = self._config.get("meetings", {}).get("google_calendar", {})
+        explicit = gcal.get("add_date_calendar", {}).get("name", "")
+        return explicit or self.accepts_meetings_calendar_name
+
+    @property
+    def free_check_calendar_ids(self) -> list[str]:
+        """Calendar IDs to check for scheduling conflicts."""
+        return [c.get("id", "") for c in self.free_check_calendars if c.get("id")]
 
     def save_setting(self, key_path: list[str], value: object) -> bool:
         """Update a nested config key and persist to settings.json."""

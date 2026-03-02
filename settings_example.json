@@ -83,8 +83,12 @@
     "google_calendar": {
       "credentials_path": "credentials.json",
       "token_path": "token.json",
-      "calendar_id": "primary",
-      "free_check_calendars": []
+      "accepts_meetings_calendar": {
+        "name": "My Calendar",
+        "id": "primary"
+      },
+      "free_check_calendars": [],
+      "add_date_calendar": {"name": "My Calendar", "id": "primary"}
     }
   }
 }
