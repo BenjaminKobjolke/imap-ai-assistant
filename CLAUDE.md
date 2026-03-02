@@ -9,39 +9,76 @@ IMAP AI Assistant is an email automation system that processes emails and conver
 ## Essential Commands
 
 ```bash
-# Install dependencies
+# Install dependencies (requires uv: https://docs.astral.sh/uv/)
 call install.bat
 # or manually:
-python -m venv venv
-call venv\Scripts\activate.bat
-pip install -r requirements.txt
-pip install openai  # Not in requirements.txt but needed
+uv sync --all-groups
 
 # Run the application
-call run.bat
+call start.bat
 # or manually:
-call venv\Scripts\activate.bat
-python main.py
+uv run python main.py
 
 # Main execution modes
-python main.py                # Process unread emails and responses
-python main.py --test         # Test all connections
-python main.py --status       # Show system status
-python main.py --responses    # Process only assignee responses
+uv run python main.py                # Process unread emails and responses
+uv run python main.py --test         # Test all connections
+uv run python main.py --status       # Show system status
+uv run python main.py --responses    # Process only assignee responses
 
 # Debug: inspect emails in an IMAP folder (read-only, saves to debug/)
-python main.py --inspect INBOX
-python main.py --inspect "Company/@BKToDo" --use-processor-account
+uv run python main.py --inspect INBOX
+uv run python main.py --inspect "Company/@BKToDo" --use-processor-account
 
 # List today's meetings with start/end times
-python main.py --todays-meetings
+uv run python main.py --todays-meetings
 
 # Archive old meeting emails (uses ICS calendar date, not email date)
-python main.py --cleanup-meetings
+uv run python main.py --cleanup-meetings
+
+# Update all dependencies
+call update.bat
+# or manually:
+uv lock --upgrade && uv sync --all-groups
+
+# Run linter and type checker
+uv run ruff check src/ main.py
+uv run mypy src/ main.py
+
+# Run tests
+call tools\tests.bat
+# or manually:
+uv run pytest tests/ -v
 
 # Test logging functionality
-python test_logger.py
+uv run python test_logger.py
 ```
+
+## Coding Rules
+
+### Common Rules (All Languages)
+- Use English for all code, comments, and documentation
+- One file = one primary responsibility; split when a file exceeds ~300 lines
+- No hardcoded secrets — use environment variables or config files excluded from VCS
+- Every public function/method must have a docstring or doc-comment explaining *why*, not *what*
+- Prefer composition over inheritance
+- Delete dead code — do not comment it out
+- Use string constants or enums instead of magic strings/numbers
+- Use structured logging (key-value pairs) instead of string interpolation in log messages
+- Handle errors explicitly — no silent catches or bare `except:`
+- Write small, focused functions (aim for < 30 lines per function)
+- Naming: `snake_case` for files and directories, descriptive names for variables and functions
+
+### Python-Specific Rules
+- **Dependency management:** `uv` with `pyproject.toml` as single source of truth — no `requirements.txt`
+- **Formatting & linting:** `ruff` (configured in `pyproject.toml`)
+- **Type checking:** `mypy` (configured in `pyproject.toml`)
+- **Testing:** `pytest` — all tests live under `tests/`
+- **Imports:** Use `from __future__ import annotations` in every module for modern type syntax
+- **Type hints:** Required on all new function signatures (params + return)
+- **String formatting:** f-strings only — no `.format()` or `%`
+- **Data classes:** `@dataclass` or `NamedTuple` for plain data objects
+- **Path handling:** `pathlib.Path` — no `os.path`
+- **Logging:** Use `ApplicationLogger` (src/logging/app_logger.py) — no bare `print()` in library code
 
 ## Architecture & Core Components
 
@@ -128,16 +165,21 @@ type logs\system.log
 
 # Inspect emails in any IMAP folder for debugging
 # Fetches emails, prints summary to console, saves full content to debug/
-python main.py --inspect INBOX                          # Main account INBOX
-python main.py --inspect "Company/@BKToDo"              # Specific folder
-python main.py --inspect INBOX --use-processor-account  # Processor account
+uv run python main.py --inspect INBOX                          # Main account INBOX
+uv run python main.py --inspect "Company/@BKToDo"              # Specific folder
+uv run python main.py --inspect INBOX --use-processor-account  # Processor account
+
+# Run tests
+uv run pytest tests/ -v
 
 # Test specific components
-python test_logger.py  # Tests ApplicationLogger with mock AI calls
+uv run python test_logger.py  # Tests ApplicationLogger with mock AI calls
 ```
 
 ## Important Files to Understand
 
+- `pyproject.toml`: Dependency definitions, tool configuration (ruff, mypy, pytest)
+- `uv.lock`: Pinned dependency versions (generated, do not edit manually)
 - `main.py`: Entry point with command-line argument handling
 - `src/processors/email_processor.py`: Main orchestration logic
 - `src/ai/openai_client.py`: All AI interactions and prompt handling

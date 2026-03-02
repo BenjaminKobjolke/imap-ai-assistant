@@ -15,7 +15,8 @@ Built for multi-account email environments, it handles the full lifecycle from e
 
 ## Prerequisites
 
-- Python 3.8+
+- Python 3.11+
+- [uv](https://docs.astral.sh/uv/) package manager
 - OpenAI API key (GPT-4o recommended)
 - IMAP/SMTP email accounts
 - Remember the Milk account with email import enabled
@@ -31,10 +32,7 @@ call install.bat
 Or manually:
 
 ```bash
-python -m venv venv
-call venv\Scripts\activate.bat
-pip install -r requirements.txt
-pip install openai
+uv sync --all-groups
 ```
 
 ## Configuration
@@ -58,29 +56,36 @@ See [Configuration Reference](docs/features/configuration.md) for full details.
 
 ```bash
 # Default: process unread emails AND assignee responses
-python main.py
+call start.bat
+# or: uv run python main.py
 
 # Test all connections (IMAP, SMTP, OpenAI)
-python main.py --test
+uv run python main.py --test
 
 # Show system status summary
-python main.py --status
+uv run python main.py --status
 
 # Process only assignee responses
-python main.py --responses
+uv run python main.py --responses
 
 # Inspect emails in an IMAP folder (read-only debug tool)
-python main.py --inspect INBOX
-python main.py --inspect "Company/@BKToDo" --use-processor-account
+uv run python main.py --inspect INBOX
+uv run python main.py --inspect "Company/@BKToDo" --use-processor-account
 
 # List today's meetings with start/end times
-python main.py --todays-meetings
+uv run python main.py --todays-meetings
 
 # Archive old meeting emails (based on ICS calendar date)
-python main.py --cleanup-meetings
+uv run python main.py --cleanup-meetings
 
 # Use a custom config file
-python main.py --config path/to/settings.json
+uv run python main.py --config path/to/settings.json
+
+# Update all dependencies
+call update.bat
+
+# Run tests
+call tools\tests.bat
 ```
 
 ## Project Structure

@@ -1,0 +1,48 @@
+[project]
+name = "imap-ai-assistant"
+version = "1.0.0"
+description = "AI-powered email automation system that processes emails into Remember the Milk todos using OpenAI"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "openai>=1.0.0",
+    "tenacity>=8.0.0",
+    "imap-client-lib @ git+https://github.com/BenjaminKobjolke/imap_client_python.git@6472e979656d2b6b22d9e65b80abf6e30fcd20a8",
+    "IMAPClient>=3.0.1",
+    "python-dateutil>=2.8.0",
+    "colorama>=0.4.6",
+    "icalendar>=5.0.0",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.9.0",
+    "mypy>=1.14.0",
+    "pytest>=8.0.0",
+]
+build = [
+    "pyinstaller>=6.14.0",
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "N", "UP", "B", "SIM", "RUF"]
+ignore = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["src"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+check_untyped_defs = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

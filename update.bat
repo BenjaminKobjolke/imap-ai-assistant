@@ -1,28 +1,29 @@
 @echo off
 echo ============================================
-echo  IMAP AI Assistant - Install
+echo  IMAP AI Assistant - Update Dependencies
 echo ============================================
 
 where uv >nul 2>nul
 if %ERRORLEVEL% neq 0 (
     echo ERROR: uv is not installed or not in PATH.
-    echo Install it from: https://docs.astral.sh/uv/getting-started/installation/
     pause
     exit /b 1
 )
 
 echo.
-echo Installing all dependencies...
+echo Upgrading lock file...
+call uv lock --upgrade
+
+echo.
+echo Syncing dependencies...
 call uv sync --all-groups
-if %ERRORLEVEL% neq 0 (
-    echo ERROR: uv sync failed.
-    pause
-    exit /b 1
-)
 
 echo.
-echo Running checks...
+echo Running ruff...
 call uv run ruff check src/ main.py
+
+echo.
+echo Running mypy...
 call uv run mypy src/ main.py
 
 echo.
@@ -31,6 +32,6 @@ call uv run pytest tests/ -v
 
 echo.
 echo ============================================
-echo  Installation complete!
+echo  Update complete!
 echo ============================================
 pause
