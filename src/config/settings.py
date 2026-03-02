@@ -297,6 +297,107 @@ class ConfigManager:
             logger.error("Failed to save setting: %s", e)
             return False
 
+    def get_subject_tag_rules(self) -> Dict:
+        """Get subject tag rules configuration."""
+        rules = self._config.get("processing", {}).get("subject_tag_rules", {})
+        return {
+            "sender_rules": rules.get("sender_rules", []),
+            "keyword_rules": rules.get("keyword_rules", []),
+        }
+
+    def add_sender_tag_rule(self, pattern: str, tag: str) -> None:
+        """Add a sender-based subject tag rule."""
+        rules = self._config.setdefault("processing", {}).setdefault("subject_tag_rules", {})
+        sender_rules = rules.setdefault("sender_rules", [])
+
+        for rule in sender_rules:
+            if rule["pattern"].lower() == pattern.lower():
+                rule["tag"] = tag
+                logger.info(f"Updated sender tag rule: {pattern} -> {tag}")
+                self._save_config()
+                return
+
+        sender_rules.append({"pattern": pattern, "tag": tag})
+        logger.info(f"Added sender tag rule: {pattern} -> {tag}")
+        self._save_config()
+
+    def remove_sender_tag_rule(self, pattern: str) -> bool:
+        """Remove a sender-based subject tag rule by pattern."""
+        rules = self._config.get("processing", {}).get("subject_tag_rules", {})
+        sender_rules = rules.get("sender_rules", [])
+
+        for i, rule in enumerate(sender_rules):
+            if rule["pattern"].lower() == pattern.lower():
+                sender_rules.pop(i)
+                logger.info(f"Removed sender tag rule: {pattern}")
+                self._save_config()
+                return True
+
+        logger.warning(f"Sender tag rule not found: {pattern}")
+        return False
+
+    def add_keyword_tag_rule(self, keywords: List[str], tag: str, match: str = "all") -> None:
+        """Add a keyword-based subject tag rule."""
+        rules = self._config.setdefault("processing", {}).setdefault("subject_tag_rules", {})
+        keyword_rules = rules.setdefault("keyword_rules", [])
+
+        for rule in keyword_rules:
+            if rule["tag"] == tag:
+                rule["keywords"] = keywords
+                rule["match"] = match
+                logger.info(f"Updated keyword tag rule: {tag} (keywords: {keywords}, match: {match})")
+                self._save_config()
+                return
+
+        keyword_rules.append({"keywords": keywords, "tag": tag, "match": match})
+        logger.info(f"Added keyword tag rule: {tag} (keywords: {keywords}, match: {match})")
+        self._save_config()
+
+    def remove_keyword_tag_rule(self, tag: str) -> bool:
+        """Remove a keyword-based subject tag rule by tag."""
+        rules = self._config.get("processing", {}).get("subject_tag_rules", {})
+        keyword_rules = rules.get("keyword_rules", [])
+
+        for i, rule in enumerate(keyword_rules):
+            if rule["tag"] == tag:
+                keyword_rules.pop(i)
+                logger.info(f"Removed keyword tag rule: {tag}")
+                self._save_config()
+                return True
+
+        logger.warning(f"Keyword tag rule not found: {tag}")
+        return False
+
+    def list_tag_rules(self) -> None:
+        """Print all subject tag rules to console."""
+        rules = self.get_subject_tag_rules()
+        sender_rules = rules["sender_rules"]
+        keyword_rules = rules["keyword_rules"]
+
+        if not sender_rules and not keyword_rules:
+            logger.info("No subject tag rules configured.")
+            return
+
+        if sender_rules:
+            logger.info("Sender rules:")
+            for rule in sender_rules:
+                logger.info(f"  {rule['pattern']} -> {rule['tag']}")
+
+        if keyword_rules:
+            logger.info("Keyword rules:")
+            for rule in keyword_rules:
+                keywords_str = ", ".join(rule["keywords"])
+                match_mode = rule.get("match", "all")
+                logger.info(f"  [{match_mode}] ({keywords_str}) -> {rule['tag']}")
+
+    def _save_config(self) -> None:
+        """Persist the current config to settings.json."""
+        try:
+            with open(Path(self.config_path), "w", encoding="utf-8") as f:
+                json.dump(self._config, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            logger.error(f"Failed to save config: {e}")
+
     def get_account_smtp_config(self, account_config: Optional[Dict] = None) -> Optional[Dict]:
         """Get SMTP configuration from a specific account entry.
 

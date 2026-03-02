@@ -13,9 +13,10 @@ logger = logging.getLogger(__name__)
 class ResponseProcessor:
     """Handles processing of assignee responses and task completion detection."""
 
-    def __init__(self, config: ConfigManager, openai_client: OpenAIClient):
+    def __init__(self, config: ConfigManager, openai_client: OpenAIClient, dry_run: bool = False):
         self.config = config
         self.openai_client = openai_client
+        self.dry_run = dry_run
         self.client_response_generator = ClientResponseGenerator(config, openai_client)
         self.relationship_analyzer = RelationshipAnalyzer(config)
 
@@ -79,11 +80,14 @@ class ResponseProcessor:
         if not original_task:
             logger.warning(f"Could not find original task for response from {assignee_name}")
             # Still mark email as read even if we can't find the original task
-            try:
-                main_imap_client.mark_message_as_read(message_id)
-                logger.debug(f"Marked unmatched assignee response email {message_id} as read")
-            except Exception as e:
-                logger.warning(f"Failed to mark unmatched response email {message_id} as read: {e}")
+            if self.dry_run:
+                logger.info(f"[DRY RUN] Would mark unmatched response email {message_id} as read")
+            else:
+                try:
+                    main_imap_client.mark_message_as_read(message_id)
+                    logger.debug(f"Marked unmatched assignee response email {message_id} as read")
+                except Exception as e:
+                    logger.warning(f"Failed to mark unmatched response email {message_id} as read: {e}")
             return
 
         # Use OpenAI to determine if task is completed
@@ -92,8 +96,11 @@ class ResponseProcessor:
         if task_status.get("status") == "completed":
             logger.info(f"Task completed by {assignee_name}: {original_task}")
 
-            # Generate client response
-            self._generate_client_response(original_task, body_excerpt, main_imap_client)
+            if self.dry_run:
+                logger.info("[DRY RUN] Would generate client response for completed task")
+            else:
+                # Generate client response
+                self._generate_client_response(original_task, body_excerpt, main_imap_client)
 
             logger.info("Task completed - marking response email as read")
         else:
@@ -102,11 +109,14 @@ class ResponseProcessor:
             logger.info(f"Task not completed by {assignee_name}. Status: {status} - {reason}")
 
         # Always mark the response email as read after processing (regardless of completion status)
-        try:
-            main_imap_client.mark_message_as_read(message_id)
-            logger.debug(f"Marked assignee response email {message_id} as read")
-        except Exception as e:
-            logger.warning(f"Failed to mark response email {message_id} as read: {e}")
+        if self.dry_run:
+            logger.info(f"[DRY RUN] Would mark response email {message_id} as read")
+        else:
+            try:
+                main_imap_client.mark_message_as_read(message_id)
+                logger.debug(f"Marked assignee response email {message_id} as read")
+            except Exception as e:
+                logger.warning(f"Failed to mark response email {message_id} as read: {e}")
 
     def _find_original_task(self, assignee_name: str, response_email_message) -> Optional[Dict]:
         """Find the original task by extracting task ID from response email headers."""

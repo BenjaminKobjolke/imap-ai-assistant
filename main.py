@@ -53,12 +53,28 @@ def main():
                         help='Create event: TITLE [DATE] [START[-END]] [@CALENDAR]')
     parser.add_argument('--set-add-date-calendar', metavar='ID',
                         help='Set default Google Calendar for --add-date events')
+    parser.add_argument('--tag-rules', action='store_true',
+                        help='List all subject tag rules')
+    parser.add_argument('--setup-tag-rules', action='store_true',
+                        help='Interactive wizard to manage subject tag rules')
+    parser.add_argument('--add-sender-tag', nargs=2, metavar=('PATTERN', 'TAG'),
+                        help='Add a sender-based subject tag rule (e.g. @nuernbergmesse.de #project_tag)')
+    parser.add_argument('--remove-sender-tag', metavar='PATTERN',
+                        help='Remove a sender-based subject tag rule by pattern')
+    parser.add_argument('--add-keyword-tag', nargs='+', metavar='ARG',
+                        help='Add keyword tag rule (match=all): TAG KEYWORD [KEYWORD...]')
+    parser.add_argument('--add-keyword-tag-any', nargs='+', metavar='ARG',
+                        help='Add keyword tag rule (match=any): TAG KEYWORD [KEYWORD...]')
+    parser.add_argument('--remove-keyword-tag', metavar='TAG',
+                        help='Remove a keyword-based subject tag rule by tag')
+    parser.add_argument('--dry-run', action='store_true',
+                        help='Run without sending emails, moving messages, or marking as read')
     parser.add_argument('--config', default='settings.json', help='Path to configuration file')
 
     args = parser.parse_args()
 
     # Initialize the email processor
-    processor = EmailProcessor(args.config)
+    processor = EmailProcessor(args.config, dry_run=args.dry_run)
 
     if args.test:
         # Test all connections
@@ -119,6 +135,45 @@ def main():
 
     if args.set_add_date_calendar:
         processor.set_add_date_calendar(args.set_add_date_calendar)
+        return
+
+    if args.tag_rules:
+        processor.list_tag_rules()
+        return
+
+    if args.setup_tag_rules:
+        processor.setup_tag_rules()
+        return
+
+    if args.add_sender_tag:
+        pattern, tag = args.add_sender_tag
+        processor.add_sender_tag(pattern, tag)
+        return
+
+    if args.remove_sender_tag:
+        processor.remove_sender_tag(args.remove_sender_tag)
+        return
+
+    if args.add_keyword_tag:
+        if len(args.add_keyword_tag) < 2:
+            print("Usage: --add-keyword-tag TAG KEYWORD [KEYWORD...]")
+            return
+        tag = args.add_keyword_tag[0]
+        keywords = args.add_keyword_tag[1:]
+        processor.add_keyword_tag(tag, keywords, match="all")
+        return
+
+    if args.add_keyword_tag_any:
+        if len(args.add_keyword_tag_any) < 2:
+            print("Usage: --add-keyword-tag-any TAG KEYWORD [KEYWORD...]")
+            return
+        tag = args.add_keyword_tag_any[0]
+        keywords = args.add_keyword_tag_any[1:]
+        processor.add_keyword_tag(tag, keywords, match="any")
+        return
+
+    if args.remove_keyword_tag:
+        processor.remove_keyword_tag(args.remove_keyword_tag)
         return
 
     if args.list_calendars:

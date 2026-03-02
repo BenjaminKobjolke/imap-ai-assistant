@@ -13,10 +13,12 @@ logger = logging.getLogger(__name__)
 class TaskProcessor:
     """Handles task assignment and email processing workflow."""
 
-    def __init__(self, config: ConfigManager, smtp_client: SmtpClient, openai_client: OpenAIClient):
+    def __init__(self, config: ConfigManager, smtp_client: SmtpClient, openai_client: OpenAIClient,
+                 dry_run: bool = False):
         self.config = config
         self.smtp_client = smtp_client
         self.openai_client = openai_client
+        self.dry_run = dry_run
 
     def process_single_email(self, imap_client: EnhancedImapClient, message_id: str, email_message) -> bool:
         """Process a single email message."""
@@ -53,6 +55,11 @@ class TaskProcessor:
             processing_rules = self.config.get_processing_rules(assignee)
             target_folder = processing_rules["target_folder"]
             subject_tag = processing_rules["additional_subject_tag"]
+
+            # Append extra tags from sender/keyword rules
+            extra_tags = self._resolve_extra_tags(email_message.from_address, subject)
+            if extra_tags:
+                subject_tag = f"{subject_tag} {extra_tags}"
             assignee_email = processing_rules.get("email_address", "")
             bcc_email = processing_rules.get("bcc", "")
 
@@ -68,6 +75,15 @@ class TaskProcessor:
             if not rtm_email:
                 logger.error("RTM email address not configured")
                 return False
+
+            if self.dry_run:
+                logger.info(f"[DRY RUN] Would send RTM todo: {todo_text} (assignee: {assignee})")
+                logger.info(f"[DRY RUN] Would mark message {message_id} as read")
+                logger.info(f"[DRY RUN] Would handle original email (move to {target_folder}, "
+                            f"forward to {assignee_email or 'N/A'})")
+                logger.info(f"[DRY RUN] Successfully processed message {message_id}: "
+                            f"{todo_text} (assignee: {assignee})")
+                return True
 
             success = self.smtp_client.send_rtm_todo(
                 rtm_email=rtm_email,
@@ -100,6 +116,28 @@ class TaskProcessor:
         except Exception as e:
             logger.error(f"Error processing single email {message_id}: {e}")
             return False
+
+    def _resolve_extra_tags(self, sender: str, subject: str) -> str:
+        """Evaluate sender and keyword tag rules, return extra tags to append."""
+        rules = self.config.get_subject_tag_rules()
+        tags: list[str] = []
+        sender_lower = sender.lower()
+        subject_lower = subject.lower()
+
+        for rule in rules["sender_rules"]:
+            if rule["pattern"].lower() in sender_lower:
+                tags.append(rule["tag"])
+
+        for rule in rules["keyword_rules"]:
+            keywords = [kw.lower() for kw in rule["keywords"]]
+            match_mode = rule.get("match", "all")
+            if match_mode == "all":
+                if all(kw in subject_lower for kw in keywords):
+                    tags.append(rule["tag"])
+            elif match_mode == "any" and any(kw in subject_lower for kw in keywords):
+                tags.append(rule["tag"])
+
+        return " ".join(tags)
 
     def _handle_original_email(self, email_message, subject: str, target_folder: str,
                                assignee: str = "self", assignee_email: str = "", todo_text: str = "",
