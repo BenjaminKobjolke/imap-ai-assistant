@@ -75,6 +75,13 @@ uv run python main.py --inspect "Company/@BKToDo" --use-processor-account
 # List today's meetings with start/end times
 uv run python main.py --todays-meetings
 
+# Show details for a specific today's meeting (by index)
+uv run python main.py --todays-meeting 2
+
+# List meetings for any date (today, tomorrow, 5, 12.03, 12.03.2026)
+uv run python main.py --meetings tomorrow
+uv run python main.py --meetings 12.03
+
 # Archive old meeting emails (based on ICS calendar date)
 uv run python main.py --cleanup-meetings
 
