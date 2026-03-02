@@ -59,9 +59,10 @@ class ConfigManager:
         return self._config.get("openai", {}).get("model", "gpt-4o")
 
     @property
-    def openai_max_tokens(self) -> int:
-        """Get OpenAI max tokens."""
-        return self._config.get("openai", {}).get("max_tokens", 100)
+    def openai_max_completion_tokens(self) -> int:
+        """Get OpenAI max completion tokens."""
+        openai_cfg = self._config.get("openai", {})
+        return openai_cfg.get("max_completion_tokens", openai_cfg.get("max_tokens", 100))
 
     @property
     def openai_temperature(self) -> float:

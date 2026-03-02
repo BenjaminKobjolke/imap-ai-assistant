@@ -101,14 +101,14 @@ class EmailProcessor:
             # Initialize OpenAI client
             api_key = self.config.openai_api_key
             model = self.config.openai_model
-            max_tokens = self.config.openai_max_tokens
+            max_completion_tokens = self.config.openai_max_completion_tokens
             temperature = self.config.openai_temperature
             other_people = self.config.get_other_people_names()
             if api_key:
                 self.openai_client = OpenAIClient(
                     api_key,
                     model,
-                    max_tokens,
+                    max_completion_tokens,
                     temperature,
                     other_people,
                     app_logger=self.app_logger

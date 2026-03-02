@@ -18,13 +18,13 @@ class OpenAIClient:
     """OpenAI client for processing emails into RTM todo format."""
 
     def __init__(
-        self, api_key: str, model: str = "gpt-4o", max_tokens: int = 100,
+        self, api_key: str, model: str = "gpt-4o", max_completion_tokens: int = 100,
         temperature: float = 0.3, other_people: list[str] | None = None,
         app_logger: ApplicationLogger | None = None,
     ):
         self.client = OpenAI(api_key=api_key)
         self.model = model
-        self.max_tokens = max_tokens
+        self.max_completion_tokens = max_completion_tokens
         self.temperature = temperature
         self.other_people = other_people or []
         self.app_logger = app_logger
@@ -94,7 +94,7 @@ class OpenAIClient:
                 }
                 metadata = {
                     "model": self.model,
-                    "max_tokens": self.max_tokens,
+                    "max_completion_tokens": self.max_completion_tokens,
                     "temperature": self.temperature
                 }
                 request_id = self.app_logger.log_ai_request("email_to_todo", request_data, metadata)
@@ -106,7 +106,7 @@ class OpenAIClient:
                     {"role": "system", "content": self.system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                max_tokens=self.max_tokens,
+                max_completion_tokens=self.max_completion_tokens,
                 temperature=self.temperature,
                 response_format={"type": "json_object"}
             )
@@ -261,7 +261,7 @@ class OpenAIClient:
                 }
                 metadata = {
                     "model": self.model,
-                    "max_tokens": 150,
+                    "max_completion_tokens": 150,
                     "temperature": 0.3
                 }
                 request_id = self.app_logger.log_ai_request("task_completion", request_data, metadata)
@@ -273,7 +273,7 @@ class OpenAIClient:
                     {"role": "system", "content": self.task_completion_system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                max_tokens=150,
+                max_completion_tokens=150,
                 temperature=0.3,
                 response_format={"type": "json_object"}
             )
@@ -358,7 +358,7 @@ class OpenAIClient:
                 }
                 metadata = {
                     "model": self.model,
-                    "max_tokens": 500,
+                    "max_completion_tokens": 500,
                     "temperature": 0.7
                 }
                 request_id = self.app_logger.log_ai_request("client_response", request_data, metadata)
@@ -370,7 +370,7 @@ class OpenAIClient:
                     {"role": "system", "content": self.client_response_system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                max_tokens=500,
+                max_completion_tokens=500,
                 temperature=0.7,
                 response_format={"type": "json_object"}
             )
@@ -424,7 +424,7 @@ class OpenAIClient:
                 }
                 metadata = {
                     "model": self.model,
-                    "max_tokens": 10
+                    "max_completion_tokens": 10
                 }
                 request_id = self.app_logger.log_ai_request("connection_test", request_data, metadata)
 
@@ -432,7 +432,7 @@ class OpenAIClient:
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[{"role": "user", "content": "Hello"}],
-                max_tokens=10
+                max_completion_tokens=10
             )
 
             if response.choices:
