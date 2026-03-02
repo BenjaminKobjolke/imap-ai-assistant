@@ -1,7 +1,9 @@
+from __future__ import annotations
+
 import json
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -11,7 +13,7 @@ class ConfigManager:
 
     def __init__(self, config_path: str = "settings.json"):
         self.config_path = config_path
-        self._config = {}
+        self._config: dict[str, Any] = {}
         self.load_config()
 
     def load_config(self) -> None:
@@ -22,7 +24,7 @@ class ConfigManager:
                 logger.error(f"Configuration file {self.config_path} not found")
                 return
 
-            with open(config_file, 'r', encoding='utf-8') as f:
+            with open(config_file, encoding='utf-8') as f:
                 self._config = json.load(f)
 
             logger.info(f"Configuration loaded from {self.config_path}")
@@ -42,12 +44,12 @@ class ConfigManager:
             logger.warning(f"Missing configuration sections: {missing_sections}")
 
     @property
-    def accounts(self) -> List[Dict]:
+    def accounts(self) -> list[dict]:
         """Get IMAP account configurations."""
         return self._config.get("accounts", [])
 
     @property
-    def openai_api_key(self) -> Optional[str]:
+    def openai_api_key(self) -> str | None:
         """Get OpenAI API key."""
         return self._config.get("openai", {}).get("api_key")
 
@@ -67,7 +69,7 @@ class ConfigManager:
         return self._config.get("openai", {}).get("temperature", 0.3)
 
     @property
-    def rtm_email(self) -> Optional[str]:
+    def rtm_email(self) -> str | None:
         """Get Remember the Milk email address."""
         return self._config.get("remember_the_milk", {}).get("email_address")
 
@@ -81,7 +83,7 @@ class ConfigManager:
         """Get additional subject tag (default for my own tasks)."""
         return self._config.get("processing", {}).get("my_own_tasks", {}).get("additional_subject_tag", "#BKToDo")
 
-    def get_processing_rules(self, assignee: str = "self") -> Dict[str, str]:
+    def get_processing_rules(self, assignee: str = "self") -> dict[str, str]:
         """Get processing rules for a specific assignee."""
         processing = self._config.get("processing", {})
 
@@ -99,18 +101,18 @@ class ConfigManager:
             "bcc": rules.get("bcc", "")
         }
 
-    def get_other_people_names(self) -> List[str]:
+    def get_other_people_names(self) -> list[str]:
         """Get list of other people configured for task assignment."""
         others = self._config.get("processing", {}).get("others", {})
         return list(others.keys())
 
     @property
-    def allowed_senders(self) -> List[str]:
+    def allowed_senders(self) -> list[str]:
         """Get list of allowed email senders."""
         return self._config.get("allowed_senders", [])
 
     @property
-    def smtp_config(self) -> Dict:
+    def smtp_config(self) -> dict:
         """Get SMTP configuration."""
         return self._config.get("smtp", {})
 
@@ -124,12 +126,12 @@ class ConfigManager:
             bool(self.allowed_senders)
         )
 
-    def get_first_account(self) -> Optional[Dict]:
+    def get_first_account(self) -> dict | None:
         """Get the first configured account."""
         accounts = self.accounts
         return accounts[0] if accounts else None
 
-    def get_drafts_folder(self, account_config: Optional[Dict] = None) -> str:
+    def get_drafts_folder(self, account_config: dict | None = None) -> str:
         """Get the drafts folder name from account configuration."""
         if account_config is None:
             account_config = self.get_first_account()
@@ -139,7 +141,7 @@ class ConfigManager:
 
         return "Drafts"
 
-    def get_sent_folder(self, account_config: Optional[Dict] = None) -> str:
+    def get_sent_folder(self, account_config: dict | None = None) -> str:
         """Get the sent folder name from account configuration."""
         if account_config is None:
             account_config = self.get_first_account()
@@ -153,7 +155,7 @@ class ConfigManager:
         """Get the limit for searching sent emails (for performance)."""
         return self._config.get("sent_search_limit", 100)
 
-    def get_processor_account(self) -> Optional[Dict]:
+    def get_processor_account(self) -> dict | None:
         """Get the processor account configuration from SMTP settings."""
         smtp_config = self.smtp_config
         if not smtp_config:
@@ -172,7 +174,7 @@ class ConfigManager:
         }
         return processor_account
 
-    def get_source_account_by_email(self, sender_email: str) -> Optional[Dict]:
+    def get_source_account_by_email(self, sender_email: str) -> dict | None:
         """Get source account configuration by sender email address."""
         sender_email_lower = sender_email.lower()
 
@@ -183,12 +185,20 @@ class ConfigManager:
 
         return None
 
-    def get_all_source_accounts(self) -> List[Dict]:
+    def get_all_source_accounts(self) -> list[dict]:
         """Get all source account configurations."""
         return self.accounts
 
     @property
-    def logging_config(self) -> Dict:
+    def processor_done_folder(self) -> str:
+        """Get the folder to move processed emails into on the AI account.
+
+        Empty string means don't move — just mark as read (legacy behavior).
+        """
+        return self._config.get("smtp", {}).get("done_folder", "")
+
+    @property
+    def logging_config(self) -> dict:
         """Get logging configuration."""
         return self._config.get("logging", {})
 
@@ -297,7 +307,7 @@ class ConfigManager:
             logger.error("Failed to save setting: %s", e)
             return False
 
-    def get_subject_tag_rules(self) -> Dict:
+    def get_subject_tag_rules(self) -> dict:
         """Get subject tag rules configuration."""
         rules = self._config.get("processing", {}).get("subject_tag_rules", {})
         return {
@@ -336,7 +346,7 @@ class ConfigManager:
         logger.warning(f"Sender tag rule not found: {pattern}")
         return False
 
-    def add_keyword_tag_rule(self, keywords: List[str], tag: str, match: str = "all") -> None:
+    def add_keyword_tag_rule(self, keywords: list[str], tag: str, match: str = "all") -> None:
         """Add a keyword-based subject tag rule."""
         rules = self._config.setdefault("processing", {}).setdefault("subject_tag_rules", {})
         keyword_rules = rules.setdefault("keyword_rules", [])
@@ -398,7 +408,7 @@ class ConfigManager:
         except Exception as e:
             logger.error(f"Failed to save config: {e}")
 
-    def get_account_smtp_config(self, account_config: Optional[Dict] = None) -> Optional[Dict]:
+    def get_account_smtp_config(self, account_config: dict | None = None) -> dict | None:
         """Get SMTP configuration from a specific account entry.
 
         Falls back to the global smtp config if the account has no SMTP settings.

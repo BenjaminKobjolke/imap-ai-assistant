@@ -1,11 +1,13 @@
+from __future__ import annotations
+
 import logging
 import uuid
 from datetime import datetime
-from typing import Dict, Optional
+
+from src.ai.openai_client import OpenAIClient
 from src.config.settings import ConfigManager
 from src.email.imap_client import EnhancedImapClient
 from src.email.smtp_client import SmtpClient
-from src.ai.openai_client import OpenAIClient
 
 logger = logging.getLogger(__name__)
 
@@ -77,12 +79,14 @@ class TaskProcessor:
                 return False
 
             if self.dry_run:
-                logger.info(f"[DRY RUN] Would send RTM todo: {todo_text} (assignee: {assignee})")
+                final_subject = f"{todo_text} {subject_tag}"
+                logger.info(f"[DRY RUN] Final subject: {final_subject}")
                 logger.info(f"[DRY RUN] Would mark message {message_id} as read")
+                done_folder = self.config.processor_done_folder
+                if done_folder:
+                    logger.info(f"[DRY RUN] Would move message to \"{done_folder}\" on processor account")
                 logger.info(f"[DRY RUN] Would handle original email (move to {target_folder}, "
                             f"forward to {assignee_email or 'N/A'})")
-                logger.info(f"[DRY RUN] Successfully processed message {message_id}: "
-                            f"{todo_text} (assignee: {assignee})")
                 return True
 
             success = self.smtp_client.send_rtm_todo(
@@ -101,6 +105,14 @@ class TaskProcessor:
             # Mark as read on processor account
             if not imap_client.mark_message_as_read(message_id):
                 logger.warning(f"Failed to mark message {message_id} as read")
+
+            # Move to done folder on processor account if configured
+            done_folder = self.config.processor_done_folder
+            if done_folder:
+                if not imap_client.client.move_to_folder(message_id, done_folder):
+                    logger.warning(f"Failed to move message {message_id} to \"{done_folder}\" on processor account")
+                else:
+                    logger.info(f"Moved message {message_id} to \"{done_folder}\" on processor account")
 
             # Handle original email management and forwarding
             success = self._handle_original_email(
@@ -141,7 +153,7 @@ class TaskProcessor:
 
     def _handle_original_email(self, email_message, subject: str, target_folder: str,
                                assignee: str = "self", assignee_email: str = "", todo_text: str = "",
-                               bcc_email: str = "", task_tracking_headers: Optional[Dict[str, str]] = None) -> bool:
+                               bcc_email: str = "", task_tracking_headers: dict[str, str] | None = None) -> bool:
         """Handle finding and moving original email in sender's account, and forward if needed."""
         try:
             # Extract sender email address
@@ -192,7 +204,7 @@ class TaskProcessor:
                     if assignee != "self" and assignee_email and todo_text:
                         success = self._forward_to_assignee(
                             source_client, source_account_config, original_email_message,
-                            assignee, assignee_email, todo_text, bcc_email, task_tracking_headers
+                            assignee, assignee_email, todo_text, bcc_email, task_tracking_headers or {}
                         )
                         if not success:
                             logger.warning(f"Failed to forward original email to {assignee}")
@@ -219,9 +231,9 @@ class TaskProcessor:
             logger.error(f"Error handling original email: {e}")
             return False
 
-    def _forward_to_assignee(self, source_client: EnhancedImapClient, source_account_config: Dict,
+    def _forward_to_assignee(self, source_client: EnhancedImapClient, source_account_config: dict,
                             original_email_message, assignee: str, assignee_email: str,
-                            todo_text: str, bcc_email: str, task_tracking_headers: Dict[str, str]) -> bool:
+                            todo_text: str, bcc_email: str, task_tracking_headers: dict[str, str]) -> bool:
         """Forward original email to assignee."""
         try:
             bcc_list = [bcc_email] if bcc_email else []
@@ -282,11 +294,11 @@ class TaskProcessor:
             logger.error(f"Error forwarding email to assignee: {e}")
             return False
 
-    def _extract_sender_email(self, from_address: str) -> Optional[str]:
+    def _extract_sender_email(self, from_address: str) -> str | None:
         """Extract email address from sender field."""
         try:
             from email.utils import parseaddr
-            name, email_addr = parseaddr(from_address)
+            _, email_addr = parseaddr(from_address)
             return email_addr if email_addr else None
         except Exception as e:
             logger.debug(f"Error parsing sender email from '{from_address}': {e}")
