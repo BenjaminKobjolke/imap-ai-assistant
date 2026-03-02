@@ -21,6 +21,10 @@ def main():
     parser.add_argument('--test', action='store_true', help='Test all connections and configurations')
     parser.add_argument('--status', action='store_true', help='Show status summary')
     parser.add_argument('--responses', action='store_true', help='Process assignee responses')
+    parser.add_argument('--inspect', metavar='FOLDER', help='Inspect emails in the given IMAP folder (e.g. INBOX)')
+    parser.add_argument('--use-processor-account', action='store_true', help='Use processor account instead of main account (for --inspect)')
+    parser.add_argument('--cleanup-meetings', action='store_true', help='Archive old meeting emails based on their calendar date')
+    parser.add_argument('--todays-meetings', action='store_true', help="List today's meetings with times")
     parser.add_argument('--config', default='settings.json', help='Path to configuration file')
     
     args = parser.parse_args()
@@ -52,7 +56,25 @@ def main():
         processor.process_assignee_responses()
         logger.info("✅ Response processing completed")
         return
-    
+
+    if args.inspect:
+        # Inspect emails in a folder (read-only debug tool)
+        logger.info(f"🔍 Inspecting folder: {args.inspect}")
+        processor.inspect_folder(args.inspect, use_processor_account=args.use_processor_account)
+        return
+
+    if args.cleanup_meetings:
+        # Archive old meeting emails
+        logger.info("🗓️ Starting meeting cleanup...")
+        processor.cleanup_meetings()
+        logger.info("✅ Meeting cleanup completed")
+        return
+
+    if args.todays_meetings:
+        # List today's meetings
+        processor.todays_meetings()
+        return
+
     # Default action: process unread emails AND assignee responses
     logger.info("🚀 Starting IMAP AI Assistant")
     

@@ -211,3 +211,18 @@ class ConfigManager:
     def log_backup_count(self) -> int:
         """Get number of backup log files to keep."""
         return self.logging_config.get("backup_count", 5)
+
+    @property
+    def meetings_folder(self) -> str:
+        """Get the IMAP folder path for meeting emails."""
+        return self._config.get("meetings", {}).get("folder", "Company/@Meetings")
+
+    @property
+    def meetings_age_limit_hours(self) -> int:
+        """Get the age limit in hours for archiving old meetings."""
+        return self._config.get("meetings", {}).get("age_limit_hours", 24)
+
+    @property
+    def meetings_archive_folder(self) -> str:
+        """Get the IMAP folder path for archived meeting emails."""
+        return self._config.get("meetings", {}).get("archive_folder", "Company/@OldMeetings")

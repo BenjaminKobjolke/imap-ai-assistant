@@ -6,6 +6,8 @@ from src.email.smtp_client import SmtpClient
 from src.ai.openai_client import OpenAIClient
 from src.processors.response_processor import ResponseProcessor
 from src.processors.task_processor import TaskProcessor
+from src.processors.email_inspector import EmailInspector
+from src.processors.meeting_cleanup import MeetingCleanup
 from src.logging.app_logger import ApplicationLogger
 
 logger = logging.getLogger(__name__)
@@ -173,6 +175,104 @@ class EmailProcessor:
     
     
     
+    def inspect_folder(self, folder_name: str, use_processor_account: bool = False) -> None:
+        """Inspect emails in a given IMAP folder for debugging purposes.
+
+        Read-only: does not mark emails as read or modify anything.
+        """
+        # Choose account
+        if use_processor_account:
+            account_config = self.config.get_processor_account()
+            account_label = "processor account"
+        else:
+            account_config = self.config.get_first_account()
+            account_label = "main account"
+
+        if not account_config:
+            logger.error(f"No {account_label} configuration found")
+            return
+
+        logger.info(f"Inspecting folder '{folder_name}' on {account_label} ({account_config.get('username', 'unknown')})")
+
+        client = EnhancedImapClient(account_config)
+        if not client.connect():
+            logger.error("Failed to connect to IMAP server")
+            return
+
+        try:
+            messages = client.client.get_all_messages(folder=folder_name)
+            if not messages:
+                logger.info(f"No messages found in folder '{folder_name}'")
+                return
+
+            # Limit to 10 most recent
+            recent = messages[-10:] if len(messages) > 10 else messages
+            total = len(recent)
+
+            logger.info(f"Found {len(messages)} message(s), showing {total} most recent")
+            print(f"\n{'=' * 50}")
+            print(f"  Folder: {folder_name}  |  Account: {account_label}")
+            print(f"  Total messages: {len(messages)}  |  Showing: {total}")
+            print(f"{'=' * 50}")
+
+            for i, (message_id, email_message) in enumerate(recent, 1):
+                try:
+                    saved_path = EmailInspector.save_to_file(email_message, client)
+                    EmailInspector.print_summary(i, total, email_message, client, saved_path)
+                except Exception as e:
+                    subject = getattr(email_message, 'subject', '?')
+                    logger.error(f"Error processing email {i}/{total} '{subject}': {e}")
+                    continue
+
+            logger.info(f"Inspection complete. Files saved to debug/ directory.")
+
+        except Exception as e:
+            logger.error(f"Error inspecting folder '{folder_name}': {e}")
+        finally:
+            client.disconnect()
+
+    def cleanup_meetings(self) -> None:
+        """Archive old meeting emails based on their ICS calendar date."""
+        account_config = self.config.get_first_account()
+        if not account_config:
+            logger.error("No main account configuration found")
+            return
+
+        logger.info(f"Starting meeting cleanup (folder: {self.config.meetings_folder}, "
+                     f"age limit: {self.config.meetings_age_limit_hours}h, "
+                     f"archive: {self.config.meetings_archive_folder})")
+
+        client = EnhancedImapClient(account_config)
+        if not client.connect():
+            logger.error("Failed to connect to IMAP server")
+            return
+
+        try:
+            MeetingCleanup.cleanup_old_meetings(client, self.config)
+        except Exception as e:
+            logger.error(f"Error during meeting cleanup: {e}")
+        finally:
+            client.disconnect()
+
+    def todays_meetings(self) -> None:
+        """List today's meetings from the meetings folder."""
+        account_config = self.config.get_first_account()
+        if not account_config:
+            logger.error("No main account configuration found")
+            return
+
+        client = EnhancedImapClient(account_config)
+        if not client.connect():
+            logger.error("Failed to connect to IMAP server")
+            return
+
+        try:
+            MeetingCleanup.list_todays_meetings(client, self.config)
+        except Exception as e:
+            logger.error(f"Error listing today's meetings: {e}")
+        finally:
+            client.disconnect()
+
     def test_connections(self) -> bool:
         """Test all connections and configurations."""
         logger.info("Testing all connections...")
