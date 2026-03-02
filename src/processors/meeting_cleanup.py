@@ -25,6 +25,45 @@ class MeetingCleanup:
     """Handles archiving and listing of meeting emails based on ICS calendar data."""
 
     @staticmethod
+    def _parse_date(value: str) -> date:
+        """Parse a flexible date string into a date object.
+
+        Supported formats: today, tomorrow, 5 (day of month), 12.03, 12.03.2026.
+        """
+        v = value.strip().lower()
+        if v == "today":
+            return date.today()
+        if v == "tomorrow":
+            return date.today() + timedelta(days=1)
+
+        # DD.MM.YYYY
+        try:
+            return datetime.strptime(v, "%d.%m.%Y").date()
+        except ValueError:
+            pass
+
+        # DD.MM (current year)
+        try:
+            parsed = datetime.strptime(v, "%d.%m").date()
+            return parsed.replace(year=date.today().year)
+        except ValueError:
+            pass
+
+        # Bare number = day of current month
+        try:
+            day = int(v)
+            now = date.today()
+            return date(now.year, now.month, day)
+        except (ValueError, OverflowError):
+            pass
+
+        msg = (
+            f"Invalid date: '{value}'. "
+            "Supported formats: today, tomorrow, 5, 12.03, 12.03.2026"
+        )
+        raise ValueError(msg)
+
+    @staticmethod
     def _get_ics_data(email_message) -> Optional[bytes]:
         """Extract raw ICS data from an email message."""
         # Strategy 1: Check attachments for text/calendar
@@ -322,16 +361,16 @@ class MeetingCleanup:
         print(f"  Checked: {total} | Moved: {moved} | Kept: {kept} | Skipped: {skipped}")
 
     @staticmethod
-    def get_todays_meetings(client, config) -> list[dict]:
-        """Collect today's meetings as a list of dicts.
+    def get_todays_meetings(client, config, target_date: date | None = None) -> list[dict]:
+        """Collect meetings for a given date as a list of dicts.
 
         Each dict has: index (1-based), start, end, subject, email_message,
         ics_text, parsed.
         """
         folder = config.meetings_folder
-        today = datetime.now().date()
+        today = target_date or date.today()
 
-        logger.info(f"Scanning '{folder}' for today's meetings ({today})")
+        logger.info(f"Scanning '{folder}' for meetings on {today}")
 
         messages = client.client.get_all_messages(folder=folder)
         if not messages:
@@ -396,21 +435,28 @@ class MeetingCleanup:
         return todays
 
     @staticmethod
-    def list_todays_meetings(client, config) -> None:
-        """List all meetings scheduled for today with 1-based indices.
+    def list_todays_meetings(client, config, target_date: date | None = None) -> None:
+        """List meetings for a given date with 1-based indices.
 
         Args:
             client: Connected EnhancedImapClient instance
             config: ConfigManager instance
+            target_date: Date to list meetings for (default: today)
         """
-        today = datetime.now().date()
-        meetings = MeetingCleanup.get_todays_meetings(client, config)
+        target = target_date or date.today()
+        meetings = MeetingCleanup.get_todays_meetings(client, config, target_date=target)
 
         if not meetings:
-            print(f"\nNo meetings today ({today})")
+            label = "today" if target == date.today() else str(target)
+            print(f"\nNo meetings for {label}")
             return
 
-        _safe_print(f"\nToday's meetings ({today}):\n")
+        if target == date.today():
+            header = f"Today's meetings ({target})"
+        else:
+            header = f"Meetings for {target}"
+
+        _safe_print(f"\n{header}:\n")
         for m in meetings:
             start_str = m["start"].strftime("%H:%M")
             end_str = m["end"].strftime("%H:%M") if m["end"] else "??:??"

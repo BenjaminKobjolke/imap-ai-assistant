@@ -273,6 +273,31 @@ class EmailProcessor:
         finally:
             client.disconnect()
 
+    def meetings(self, date_str: str) -> None:
+        """List meetings for a given date string."""
+        try:
+            target_date = MeetingCleanup._parse_date(date_str)
+        except ValueError as e:
+            logger.error(str(e))
+            return
+
+        account_config = self.config.get_first_account()
+        if not account_config:
+            logger.error("No main account configuration found")
+            return
+
+        client = EnhancedImapClient(account_config)
+        if not client.connect():
+            logger.error("Failed to connect to IMAP server")
+            return
+
+        try:
+            MeetingCleanup.list_todays_meetings(client, self.config, target_date=target_date)
+        except Exception as e:
+            logger.error(f"Error listing meetings: {e}")
+        finally:
+            client.disconnect()
+
     def todays_meetings(self) -> None:
         """List today's meetings from the meetings folder."""
         account_config = self.config.get_first_account()
