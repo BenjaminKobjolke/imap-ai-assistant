@@ -101,6 +101,24 @@ uv run python main.py
 | `--set-meeting-calendar ID` | Set the Google Calendar ID used for adding events |
 | `--set-meeting-free-check-calendar ID` | Add a Google Calendar ID to check for scheduling conflicts |
 | `--remove-meeting-free-check-calendar ID` | Remove a Google Calendar ID from the conflict-check list |
+| `--add-date TITLE [DATE] [START[-END]] [@CALENDAR]` | Create a calendar event (date defaults to today, time to current hour) |
+| `--set-add-date-calendar ID` | Set default Google Calendar for `--add-date` events |
+| `--tag-rules` | List all subject tag rules |
+| `--setup-tag-rules` | Interactive wizard to manage subject tag rules |
+| `--add-sender-tag PATTERN TAG` | Add a sender-based subject tag rule |
+| `--remove-sender-tag PATTERN` | Remove a sender-based subject tag rule |
+| `--add-keyword-tag TAG KEYWORD [...]` | Add keyword tag rule (match=all) |
+| `--add-keyword-tag-any TAG KEYWORD [...]` | Add keyword tag rule (match=any) |
+| `--remove-keyword-tag TAG` | Remove a keyword-based subject tag rule |
+| `--search [TERM]` | Search emails (prefix with `to:`/`from:`/`s:` for field-specific; no arg = wizard) |
+| `--body TERM` | Search body text (use with `--search`) |
+| `--date DD.MM.YYYY` | Filter by exact date |
+| `--date-after DATE` | Filter emails after date |
+| `--date-before DATE` | Filter emails before date |
+| `--path FOLDER` | Search in specific IMAP folder |
+| `--update-cache` | Rebuild email search cache |
+| `--folders FOLDERS` | Semicolon-separated folder list for `--update-cache` |
+| `--dry-run` | Run without sending emails, moving messages, or marking as read |
 | `--workflow [NAME]` | Run a workflow by name, or list available workflows if no name given |
 | `--config PATH` | Path to configuration file (default: `settings.json`) |
 
@@ -129,6 +147,21 @@ uv run python main.py --process-invites
 
 # Archive old meeting emails
 uv run python main.py --cleanup-meetings
+
+# Add a calendar event
+call add_date.bat "Team Standup" 05.03.2026 9-10
+uv run python main.py --add-date "Client Call" 10.03.2026 14-15 @Work
+
+# Tag rules
+uv run python main.py --tag-rules
+uv run python main.py --add-sender-tag @nuernbergmesse.de NM
+
+# Search emails
+uv run python main.py --search "from:john@example.com"
+uv run python main.py --search "project update" --date-after 01.01.2026
+
+# Dry run (no side effects)
+uv run python main.py --dry-run
 
 # Use a custom config file
 uv run python main.py --config path/to/settings.json
