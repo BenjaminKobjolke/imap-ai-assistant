@@ -16,6 +16,7 @@ dependencies = [
     "google-auth>=2.23.0",
     "google-auth-oauthlib>=1.1.0",
     "google-auth-httplib2>=0.2.0",
+    "task-scheduler-sdk @ git+https://github.com/BenjaminKobjolke/task-scheduler-sdk.git",
 ]
 
 [dependency-groups]

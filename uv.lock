@@ -437,6 +437,7 @@ dependencies = [
     { name = "imapclient" },
     { name = "openai" },
     { name = "python-dateutil" },
+    { name = "task-scheduler-sdk" },
     { name = "tenacity" },
 ]
 
@@ -462,6 +463,7 @@ requires-dist = [
     { name = "imapclient", specifier = ">=3.0.1" },
     { name = "openai", specifier = ">=1.0.0" },
     { name = "python-dateutil", specifier = ">=2.8.0" },
+    { name = "task-scheduler-sdk", git = "https://github.com/BenjaminKobjolke/task-scheduler-sdk.git" },
     { name = "tenacity", specifier = ">=8.0.0" },
 ]
 
@@ -1137,6 +1139,11 @@ sdist = { url = "https://files.pythonhosted.org/packages/a2/87/a6771e1546d97e7e0
 wheels = [
     { url = "https://files.pythonhosted.org/packages/e9/44/75a9c9421471a6c4805dbf2356f7c181a29c1879239abab1ea2cc8f38b40/sniffio-1.3.1-py3-none-any.whl", hash = "sha256:2f6da418d1f1e0fddd844478f41680e794e6051915791a034ff65e5f100525a2", size = 10235, upload-time = "2024-02-25T23:20:01.196Z" },
 ]
+
+[[package]]
+name = "task-scheduler-sdk"
+version = "0.1.0"
+source = { git = "https://github.com/BenjaminKobjolke/task-scheduler-sdk.git#ec6b69c8bbf9a0ab9d9db9964f7691c9b5e0ad7e" }
 
 [[package]]
 name = "tenacity"
