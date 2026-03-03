@@ -16,7 +16,12 @@ class GoogleCalendarClient:
     SCOPES: ClassVar[list[str]] = ["https://www.googleapis.com/auth/calendar"]
     OAUTH_PORT: ClassVar[int] = 51032
 
-    def __init__(self, credentials_path: str = "credentials.json", token_path: str = "token.json", calendar_id: str = "primary") -> None:
+    def __init__(
+        self,
+        credentials_path: str = "credentials.json",
+        token_path: str = "token.json",
+        calendar_id: str = "primary",
+    ) -> None:
         """Initialize with paths for OAuth credentials, stored token, and target calendar."""
         self.credentials_path = Path(credentials_path)
         self.token_path = Path(token_path)

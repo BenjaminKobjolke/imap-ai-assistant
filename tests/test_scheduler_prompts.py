@@ -4,8 +4,6 @@ from __future__ import annotations
 import os
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from src.interaction.scheduler_prompts import (
     _is_interactive,
     scheduler_ask,

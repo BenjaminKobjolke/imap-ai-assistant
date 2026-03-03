@@ -268,12 +268,14 @@ class ConfigManager:
     @property
     def accepts_meetings_calendar_id(self) -> str:
         """Get the Google Calendar ID to import events into."""
-        return self._config.get("meetings", {}).get("google_calendar", {}).get("accepts_meetings_calendar", {}).get("id", "primary")
+        cal = self._config.get("meetings", {}).get("google_calendar", {})
+        return cal.get("accepts_meetings_calendar", {}).get("id", "primary")
 
     @property
     def accepts_meetings_calendar_name(self) -> str:
         """Get the display name of the calendar used for accepting meetings."""
-        return self._config.get("meetings", {}).get("google_calendar", {}).get("accepts_meetings_calendar", {}).get("name", "")
+        cal = self._config.get("meetings", {}).get("google_calendar", {})
+        return cal.get("accepts_meetings_calendar", {}).get("name", "")
 
     @property
     def free_check_calendars(self) -> list[dict[str, str]]:
