@@ -17,6 +17,7 @@ from src.processors.response_processor import ResponseProcessor
 from src.processors.tag_rules_wizard import TagRulesWizard
 from src.processors.task_processor import TaskProcessor
 from src.processors.workflow_runner import WorkflowRunner
+from src.search.cache_builder import CacheBuilder
 from src.search.email_search import EmailSearch
 
 logger = logging.getLogger(__name__)
@@ -449,13 +450,13 @@ class EmailProcessor:
         finally:
             client.disconnect()
 
-    def update_search_cache(self, folders: str | None = None) -> None:
+    def update_search_cache(self, folders: str | None = None, fast: bool = False) -> None:
         """Rebuild the email search cache."""
         client = self._connect_main_account()
         if not client:
             return
         try:
-            EmailSearch.update_cache(client, self.config, folders)
+            CacheBuilder.update_cache(client, self.config, folders, fast=fast)
         except Exception as e:
             logger.error(f"Error updating search cache: {e}")
         finally:

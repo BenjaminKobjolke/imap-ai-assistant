@@ -122,6 +122,15 @@ class SearchCache:
         """Return folders from *all_folders* that are missing or expired."""
         return [f for f in all_folders if not self.is_folder_fresh(f, max_age_days)]
 
+    def get_folder_message_count(self, folder: str) -> int | None:
+        """Return the cached message count for a folder, or None if not cached."""
+        row = self._conn.execute(
+            "SELECT message_count FROM cache_metadata WHERE folder = ?", (folder,)
+        ).fetchone()
+        if not row:
+            return None
+        return row["message_count"]
+
     def has_any_data(self) -> bool:
         """Return True if the cache contains at least one email."""
         row = self._conn.execute("SELECT COUNT(*) AS cnt FROM email_cache").fetchone()
@@ -163,6 +172,12 @@ class SearchCache:
         """Remove all cached emails for *folder*."""
         self._conn.execute("DELETE FROM email_cache WHERE folder = ?", (folder,))
         self._conn.execute("DELETE FROM cache_metadata WHERE folder = ?", (folder,))
+        self._conn.commit()
+
+    def clear_folder_by_prefix(self, folder_lower: str) -> None:
+        """Remove cached data for any folder whose lowercase name matches *folder_lower*."""
+        self._conn.execute("DELETE FROM email_cache WHERE LOWER(folder) = ?", (folder_lower,))
+        self._conn.execute("DELETE FROM cache_metadata WHERE LOWER(folder) = ?", (folder_lower,))
         self._conn.commit()
 
     # ------------------------------------------------------------------

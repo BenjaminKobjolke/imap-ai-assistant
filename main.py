@@ -1,5 +1,11 @@
 import argparse
 import logging
+import sys
+
+# Ensure stdout/stderr can handle Unicode on Windows
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
 
 from src.processors.email_processor import EmailProcessor
 
@@ -78,6 +84,8 @@ def main():
     parser.add_argument('--date-before', metavar='DATE', help='Filter emails before date')
     parser.add_argument('--path', metavar='FOLDER', help='Search in specific IMAP folder')
     parser.add_argument('--update-cache', action='store_true', help='Rebuild email search cache')
+    parser.add_argument('--fast', action='store_true',
+                        help='Skip folders with unchanged message count (use with --update-cache)')
     parser.add_argument('--folders', metavar='FOLDERS',
                         help='Semicolon-separated folder list for --update-cache')
     parser.add_argument('--config', default='settings.json', help='Path to configuration file')
@@ -228,7 +236,7 @@ def main():
         return
 
     if args.update_cache:
-        processor.update_search_cache(folders=args.folders)
+        processor.update_search_cache(folders=args.folders, fast=args.fast)
         return
 
     if args.search is not None:

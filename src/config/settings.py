@@ -433,6 +433,17 @@ class ConfigManager:
         """Path to the SQLite search cache database."""
         return Path(self._config.get("search", {}).get("cache_db", "data/email_cache.db"))
 
+    @property
+    def search_exclude_folders(self) -> list[str]:
+        """Folder names to exclude from search and cache building."""
+        search = self._config.get("search", {})
+        return search.get("exclude_folders", search.get("cache_exclude_folders", []))
+
+    @property
+    def search_live_folders(self) -> list[str]:
+        """Folder names that are always searched live via IMAP, never from cache."""
+        return self._config.get("search", {}).get("live_folders", ["INBOX"])
+
     def get_account_smtp_config(self, account_config: dict | None = None) -> dict | None:
         """Get SMTP configuration from a specific account entry.
 
