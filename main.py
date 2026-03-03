@@ -1,5 +1,7 @@
 import argparse
 import logging
+
+from src.interaction.scheduler_prompts import _is_interactive
 from src.processors.email_processor import EmailProcessor
 
 # Configure logging
@@ -75,6 +77,7 @@ def main():
 
     # Initialize the email processor
     processor = EmailProcessor(args.config, dry_run=args.dry_run)
+    logger.info("Scheduler mode: %s", _is_interactive())
 
     if args.test:
         # Test all connections

@@ -14,17 +14,10 @@ from email.mime.text import MIMEText
 from src.calendar.google_calendar_client import GoogleCalendarClient
 from src.config.settings import ConfigManager
 from src.email.imap_client import EnhancedImapClient
+from src.interaction.scheduler_prompts import scheduler_choose, scheduler_confirm, send_output
 from src.processors.meeting_cleanup import MeetingCleanup
 
 logger = logging.getLogger(__name__)
-
-
-def _safe_print(text: str) -> None:
-    """Print text safely on Windows console by replacing unencodable chars."""
-    try:
-        print(text)
-    except UnicodeEncodeError:
-        print(text.encode("ascii", errors="replace").decode("ascii"))
 
 
 @dataclass
@@ -57,33 +50,26 @@ class InviteProcessor:
     def select_calendar(gcal_client: GoogleCalendarClient, config: ConfigManager) -> None:
         """Use the stored calendar or let the user pick one interactively."""
         if gcal_client.calendar_id != "primary":
-            _safe_print(f"\nUsing calendar: {gcal_client.calendar_id}")
+            send_output(f"\nUsing calendar: {gcal_client.calendar_id}")
             return
 
         calendars = gcal_client.list_calendars()
         if not calendars:
-            _safe_print("Could not retrieve calendars. Using current setting.")
+            send_output("Could not retrieve calendars. Using current setting.")
             return
 
-        _safe_print("\nNo calendar configured yet. Please pick one:\n")
-        for i, cal in enumerate(calendars, 1):
-            summary = cal.get("summary", "(unnamed)")
-            cal_id = cal.get("id", "")
-            primary = " (primary)" if cal.get("primary") else ""
-            _safe_print(f"  {i}. {summary}{primary} — {cal_id}")
-
-        while True:
-            choice = input("  > ").strip()
-            if choice.isdigit() and 1 <= int(choice) <= len(calendars):
-                selected = calendars[int(choice) - 1]
-                gcal_client.calendar_id = selected["id"]
-                config.save_setting(
-                    ["meetings", "google_calendar", "accepts_meetings_calendar"],
-                    {"name": selected.get("summary", ""), "id": selected["id"]},
-                )
-                _safe_print(f"  Saved: {selected.get('summary', '')} ({selected['id']})")
-                return
-            _safe_print("  Invalid choice. Try again.")
+        options = [
+            f"{cal.get('summary', '(unnamed)')}{' (primary)' if cal.get('primary') else ''} — {cal.get('id', '')}"
+            for cal in calendars
+        ]
+        choice_index = scheduler_choose("No calendar configured yet. Please pick one:", options, default=0)
+        selected = calendars[choice_index]
+        gcal_client.calendar_id = selected["id"]
+        config.save_setting(
+            ["meetings", "google_calendar", "accepts_meetings_calendar"],
+            {"name": selected.get("summary", ""), "id": selected["id"]},
+        )
+        send_output(f"  Saved: {selected.get('summary', '')} ({selected['id']})")
 
     @staticmethod
     def process_invites(
@@ -97,14 +83,14 @@ class InviteProcessor:
 
         InviteProcessor.select_calendar(gcal_client, config)
 
-        _safe_print(f"\nScanning '{folder}' for meeting invites...")
+        send_output(f"\nScanning '{folder}' for meeting invites...")
 
         invites = InviteProcessor._scan_for_invites(client, folder)
         if not invites:
-            _safe_print("No meeting invites found.")
+            send_output("No meeting invites found.")
             return
 
-        _safe_print(f"Found {len(invites)} invite(s).\n")
+        send_output(f"Found {len(invites)} invite(s).\n")
 
         added = 0
         deleted = 0
@@ -136,31 +122,31 @@ class InviteProcessor:
                         start_time=invite.dtstart,
                     )
                     if success:
-                        _safe_print("  Deleted from Google Calendar.")
+                        send_output("  Deleted from Google Calendar.")
                         deleted += 1
                     else:
-                        _safe_print("  Failed to delete from Google Calendar.")
+                        send_output("  Failed to delete from Google Calendar.")
 
                     InviteProcessor._archive_invite(
                         client, config, invite.message_id, folder,
                     )
-                    _safe_print("  Moved to archive folder.")
+                    send_output("  Moved to archive folder.")
 
                 elif action == "archive":
                     success = InviteProcessor._archive_invite(
                         client, config, invite.message_id, folder,
                     )
                     if success:
-                        _safe_print("  Moved to archive folder.")
+                        send_output("  Moved to archive folder.")
                         archived += 1
                     else:
-                        _safe_print("  Failed to archive.")
+                        send_output("  Failed to archive.")
                         skipped += 1
 
                 else:
                     skipped += 1
 
-                print()
+                send_output("")
                 continue
 
             action = InviteProcessor._prompt_user(already_exists)
@@ -168,7 +154,7 @@ class InviteProcessor:
             if action == "yes":
                 success = InviteProcessor._add_to_calendar(gcal_client, invite)
                 if success:
-                    _safe_print("  Added to Google Calendar.")
+                    send_output("  Added to Google Calendar.")
                     added += 1
 
                     rsvp_choice = InviteProcessor._prompt_rsvp(invite)
@@ -178,27 +164,27 @@ class InviteProcessor:
                         )
 
                     InviteProcessor._move_to_meetings(client, config, invite.message_id, folder)
-                    _safe_print("  Moved to meetings folder.")
+                    send_output("  Moved to meetings folder.")
                 else:
-                    _safe_print("  Failed to add to Google Calendar.")
+                    send_output("  Failed to add to Google Calendar.")
                     skipped += 1
                     continue
 
             elif action == "no":
                 success = InviteProcessor._archive_invite(client, config, invite.message_id, folder)
                 if success:
-                    _safe_print("  Moved to archive folder.")
+                    send_output("  Moved to archive folder.")
                     archived += 1
                 else:
-                    _safe_print("  Failed to archive.")
+                    send_output("  Failed to archive.")
                     skipped += 1
 
             else:
                 skipped += 1
 
-            print()
+            send_output("")
 
-        _safe_print(
+        send_output(
             f"\nSummary: {len(invites)} invite(s) processed | "
             f"{added} added | {deleted} deleted | {archived} archived | {skipped} skipped"
         )
@@ -373,81 +359,75 @@ class InviteProcessor:
     ) -> None:
         """Display invite details to the user."""
         line = "\u2501" * 50
-        _safe_print(line)
-        _safe_print(f"  Invite {index}/{total}")
-        _safe_print(f"  Subject:   {invite.summary or invite.subject}")
+        send_output(line)
+        send_output(f"  Invite {index}/{total}")
+        send_output(f"  Subject:   {invite.summary or invite.subject}")
 
         if invite.dtstart:
             start_str = invite.dtstart.strftime("%a %d.%m.%Y %H:%M")
             if invite.dtend:
                 end_str = invite.dtend.strftime("%H:%M")
-                _safe_print(f"  When:      {start_str} - {end_str}")
+                send_output(f"  When:      {start_str} - {end_str}")
             else:
-                _safe_print(f"  When:      {start_str}")
+                send_output(f"  When:      {start_str}")
         else:
-            _safe_print("  When:      (unknown)")
+            send_output("  When:      (unknown)")
 
-        _safe_print(f"  Organizer: {invite.organizer or '(unknown)'}")
-        _safe_print(f"  Location:  {invite.location or '(none)'}")
+        send_output(f"  Organizer: {invite.organizer or '(unknown)'}")
+        send_output(f"  Location:  {invite.location or '(none)'}")
 
         if conflicts and (conflicts[0] or conflicts[1]):
             overlapping, nearby = conflicts
             if overlapping:
                 label = "Overlapping"
-                _safe_print(f"  {label}: {len(overlapping)} event(s)")
+                send_output(f"  {label}: {len(overlapping)} event(s)")
                 padding = " " * (len(label) + 2)
                 for cal_name, summary, time_range in overlapping:
-                    _safe_print(f"  {padding}{time_range}  {summary} ({cal_name})")
+                    send_output(f"  {padding}{time_range}  {summary} ({cal_name})")
             if nearby:
                 label = "Nearby"
-                _safe_print(f"  {label}:      {len(nearby)} event(s)")
+                send_output(f"  {label}:      {len(nearby)} event(s)")
                 for cal_name, summary, time_range in nearby:
-                    _safe_print(f"               {time_range}  {summary} ({cal_name})")
+                    send_output(f"               {time_range}  {summary} ({cal_name})")
 
         if invite.is_cancellation:
-            _safe_print("  Status:    CANCELLED")
+            send_output("  Status:    CANCELLED")
         elif already_in_calendar:
-            _safe_print("  Status:    Already in Google Calendar")
+            send_output("  Status:    Already in Google Calendar")
         else:
-            _safe_print("  Status:    Not in Google Calendar")
+            send_output("  Status:    Not in Google Calendar")
 
-        _safe_print(line)
+        send_output(line)
 
     @staticmethod
     def _prompt_user(already_in_calendar: bool) -> str:
         """Prompt user for action on an invite. Returns 'yes', 'no', or 'skip'."""
         if already_in_calendar:
-            _safe_print("\n  [n]o - archive  |  [s]kip")
+            options = ["Archive", "Skip"]
+            mapping = ["no", "skip"]
+            default = 1
         else:
-            _safe_print("\n  [y]es - add to calendar  |  [n]o - archive  |  [s]kip")
+            options = ["Add to calendar", "Archive", "Skip"]
+            mapping = ["yes", "no", "skip"]
+            default = 0
 
-        while True:
-            choice = input("  > ").strip().lower()
-            if choice in ("y", "yes") and not already_in_calendar:
-                return "yes"
-            if choice in ("n", "no"):
-                return "no"
-            if choice in ("s", "skip", ""):
-                return "skip"
-            _safe_print("  Invalid choice. Try again.")
+        choice_index = scheduler_choose("Action:", options, default=default)
+        return mapping[choice_index]
 
     @staticmethod
     def _prompt_cancellation(already_in_calendar: bool) -> str:
         """Prompt user for action on a cancelled invite. Returns 'delete', 'archive', or 'skip'."""
         if already_in_calendar:
-            _safe_print("\n  [d]elete from calendar & archive  |  [n]o - archive only  |  [s]kip")
+            options = ["Delete from calendar & archive", "Archive only", "Skip"]
+            mapping = ["delete", "archive", "skip"]
+            default = 0
         else:
-            _safe_print("\n  [n]o - archive  |  [s]kip")
+            options = ["Archive", "Skip"]
+            mapping = ["archive", "skip"]
+            default = 0
 
-        while True:
-            choice = input("  > ").strip().lower()
-            if choice in ("d", "delete") and already_in_calendar:
-                return "delete"
-            if choice in ("n", "no"):
-                return "archive"
-            if choice in ("s", "skip", ""):
-                return "skip"
-            _safe_print("  Invalid choice. Try again.")
+        choice_index = scheduler_choose("Action:", options, default=default)
+        return mapping[choice_index]
 
     @staticmethod
     def _prompt_rsvp(invite: ParsedInvite) -> bool:
@@ -455,10 +435,9 @@ class InviteProcessor:
         if not invite.organizer_email:
             return False
 
-        _safe_print(f"\n  Send RSVP acceptance to {invite.organizer_email}?")
-        _safe_print("  [y]es  |  [n]o")
-        choice = input("  > ").strip().lower()
-        return choice in ("y", "yes")
+        return scheduler_confirm(
+            f"Send RSVP acceptance to {invite.organizer_email}?", default=True,
+        )
 
     @staticmethod
     def _add_to_calendar(gcal_client: GoogleCalendarClient, invite: ParsedInvite) -> bool:
@@ -477,15 +456,15 @@ class InviteProcessor:
         if config.meetings_rsvp_send_directly:
             success = InviteProcessor._send_rsvp_email(config, account_config, invite)
             if success:
-                _safe_print(f"  RSVP sent to {invite.organizer_email}.")
+                send_output(f"  RSVP sent to {invite.organizer_email}.")
             else:
-                _safe_print("  Failed to send RSVP.")
+                send_output("  Failed to send RSVP.")
         else:
             success = InviteProcessor._create_rsvp_draft(client, config, account_config, invite)
             if success:
-                _safe_print("  RSVP draft created in Drafts folder.")
+                send_output("  RSVP draft created in Drafts folder.")
             else:
-                _safe_print("  Failed to create RSVP draft.")
+                send_output("  Failed to create RSVP draft.")
 
     @staticmethod
     def _build_rsvp_ics(invite: ParsedInvite, user_email: str) -> str:
