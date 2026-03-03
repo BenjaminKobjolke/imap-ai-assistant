@@ -243,22 +243,26 @@ class EmailProcessor:
         finally:
             client.disconnect()
 
-    def cleanup_meetings(self) -> None:
-        """Archive old meeting emails based on their ICS calendar date."""
+    def _connect_main_account(self) -> EnhancedImapClient | None:
+        """Connect to the main IMAP account. Returns client or None on failure."""
         account_config = self.config.get_first_account()
         if not account_config:
             logger.error("No main account configuration found")
-            return
-
-        logger.info(f"Starting meeting cleanup (folder: {self.config.meetings_folder}, "
-                     f"age limit: {self.config.meetings_age_limit_hours}h, "
-                     f"archive: {self.config.meetings_archive_folder})")
-
+            return None
         client = EnhancedImapClient(account_config)
         if not client.connect():
             logger.error("Failed to connect to IMAP server")
-            return
+            return None
+        return client
 
+    def cleanup_meetings(self) -> None:
+        """Archive old meeting emails based on their ICS calendar date."""
+        logger.info(f"Starting meeting cleanup (folder: {self.config.meetings_folder}, "
+                     f"age limit: {self.config.meetings_age_limit_hours}h, "
+                     f"archive: {self.config.meetings_archive_folder})")
+        client = self._connect_main_account()
+        if not client:
+            return
         try:
             MeetingCleanup.cleanup_old_meetings(client, self.config)
         except Exception as e:
@@ -324,11 +328,6 @@ class EmailProcessor:
 
     def process_invites(self) -> None:
         """Interactively process meeting invite emails with Google Calendar."""
-        account_config = self.config.get_first_account()
-        if not account_config:
-            logger.error("No main account configuration found")
-            return
-
         from src.calendar.google_calendar_client import GoogleCalendarClient
 
         gcal_client = GoogleCalendarClient(
@@ -340,15 +339,12 @@ class EmailProcessor:
             logger.error("Failed to authenticate with Google Calendar")
             return
 
-        client = EnhancedImapClient(account_config)
-        if not client.connect():
-            logger.error("Failed to connect to IMAP server")
+        account_config = self.config.get_first_account()
+        client = self._connect_main_account()
+        if not client or not account_config:
             return
-
         try:
-            InviteProcessor.process_invites(
-                client, self.config, gcal_client, account_config,
-            )
+            InviteProcessor.process_invites(client, self.config, gcal_client, account_config)
         except Exception as e:
             logger.error(f"Error processing invites: {e}")
         finally:
@@ -356,16 +352,9 @@ class EmailProcessor:
 
     def todays_meeting_detail(self, index: int) -> None:
         """Show details for a specific today's meeting by index."""
-        account_config = self.config.get_first_account()
-        if not account_config:
-            logger.error("No main account configuration found")
+        client = self._connect_main_account()
+        if not client:
             return
-
-        client = EnhancedImapClient(account_config)
-        if not client.connect():
-            logger.error("Failed to connect to IMAP server")
-            return
-
         try:
             MeetingCleanup.show_meeting_detail(client, self.config, index)
         except Exception as e:
@@ -380,17 +369,9 @@ class EmailProcessor:
         except ValueError as e:
             logger.error(str(e))
             return
-
-        account_config = self.config.get_first_account()
-        if not account_config:
-            logger.error("No main account configuration found")
+        client = self._connect_main_account()
+        if not client:
             return
-
-        client = EnhancedImapClient(account_config)
-        if not client.connect():
-            logger.error("Failed to connect to IMAP server")
-            return
-
         try:
             MeetingCleanup.list_todays_meetings(client, self.config, target_date=target_date)
         except Exception as e:
@@ -400,16 +381,9 @@ class EmailProcessor:
 
     def todays_meetings(self) -> None:
         """List today's meetings from the meetings folder."""
-        account_config = self.config.get_first_account()
-        if not account_config:
-            logger.error("No main account configuration found")
+        client = self._connect_main_account()
+        if not client:
             return
-
-        client = EnhancedImapClient(account_config)
-        if not client.connect():
-            logger.error("Failed to connect to IMAP server")
-            return
-
         try:
             MeetingCleanup.list_todays_meetings(client, self.config)
         except Exception as e:
@@ -450,16 +424,9 @@ class EmailProcessor:
         path: str | None = None,
     ) -> None:
         """Search emails using the cached index."""
-        account_config = self.config.get_first_account()
-        if not account_config:
-            logger.error("No main account configuration found")
+        client = self._connect_main_account()
+        if not client:
             return
-
-        client = EnhancedImapClient(account_config)
-        if not client.connect():
-            logger.error("Failed to connect to IMAP server")
-            return
-
         try:
             EmailSearch.search(
                 client, self.config, search_term, body_term,
@@ -472,16 +439,9 @@ class EmailProcessor:
 
     def search_wizard(self) -> None:
         """Interactive search wizard."""
-        account_config = self.config.get_first_account()
-        if not account_config:
-            logger.error("No main account configuration found")
+        client = self._connect_main_account()
+        if not client:
             return
-
-        client = EnhancedImapClient(account_config)
-        if not client.connect():
-            logger.error("Failed to connect to IMAP server")
-            return
-
         try:
             EmailSearch.wizard(client, self.config)
         except Exception as e:
@@ -491,16 +451,9 @@ class EmailProcessor:
 
     def update_search_cache(self, folders: str | None = None) -> None:
         """Rebuild the email search cache."""
-        account_config = self.config.get_first_account()
-        if not account_config:
-            logger.error("No main account configuration found")
+        client = self._connect_main_account()
+        if not client:
             return
-
-        client = EnhancedImapClient(account_config)
-        if not client.connect():
-            logger.error("Failed to connect to IMAP server")
-            return
-
         try:
             EmailSearch.update_cache(client, self.config, folders)
         except Exception as e:
