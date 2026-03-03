@@ -5,6 +5,7 @@ from typing import Dict, Optional
 from src.config.settings import ConfigManager
 from src.email.imap_client import EnhancedImapClient
 from src.ai.openai_client import OpenAIClient
+from src.interaction.scheduler_prompts import scheduler_ask, scheduler_confirm, send_output
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +40,20 @@ class ClientResponseGenerator:
                 assignee_response=assignee_response,
                 last_sent_context=last_sent_context
             )
+
+            # Let user review/edit the response body when running interactively
+            response_body = response_data.get("response", "")
+            edited_body = scheduler_ask(
+                f"AI-generated response:\n{response_body}\n\nEdit response (or keep as-is):",
+                default=response_body,
+            )
+            response_data["response"] = edited_body
+
+            if not scheduler_confirm(
+                f"Create draft email to {original_sender}?", default=True
+            ):
+                logger.info("User declined draft creation — skipping")
+                return False
 
             # Create draft email
             return self._create_draft_email(
@@ -122,6 +137,7 @@ class ClientResponseGenerator:
             )
 
             if success:
+                send_output(f"Draft response created for {original_sender}")
                 logger.info(f"Successfully created draft response for client: {original_sender}")
                 logger.info(f"Draft subject: {draft_subject}")
                 logger.info("Task completed, draft response created for manual review")

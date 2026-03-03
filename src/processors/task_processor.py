@@ -8,6 +8,7 @@ from src.ai.openai_client import OpenAIClient
 from src.config.settings import ConfigManager
 from src.email.imap_client import EnhancedImapClient
 from src.email.smtp_client import SmtpClient
+from src.interaction.scheduler_prompts import scheduler_ask, scheduler_choose, scheduler_confirm, send_output
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +43,7 @@ class TaskProcessor:
                 f"📨 extract_email_content returned - Values: subject='{subject}', "
                 f"first_line='{first_line}', body_excerpt='{body_excerpt}'"
             )
+            send_output(f"Processing email from {email_message.from_address}: {subject}")
 
             # Process with OpenAI
             logger.info("📨 About to call process_email_to_todo...")
@@ -52,6 +54,19 @@ class TaskProcessor:
 
             todo_text, assignee = result
             logger.info(f"📨 process_email_to_todo completed, todo: {todo_text}, assignee: {assignee}")
+
+            # Let user review/edit todo text and assignee when running interactively
+            todo_text = scheduler_ask(f"Todo text: {todo_text}\nEdit todo (or keep as-is):", default=todo_text)
+
+            assignee_options = ["self", *self.config.get_other_people_names()]
+            default_index = assignee_options.index(assignee) if assignee in assignee_options else 0
+            assignee_index = scheduler_choose(
+                f"Assignee for this task (AI suggested: {assignee}):",
+                assignee_options,
+                default=default_index,
+            )
+            assignee = assignee_options[assignee_index]
+            send_output(f"Todo: {todo_text} (assignee: {assignee})")
 
             # Get processing rules based on assignee
             processing_rules = self.config.get_processing_rules(assignee)
@@ -92,6 +107,10 @@ class TaskProcessor:
                             f"forward to {assignee_email or 'N/A'})")
                 return True
 
+            if not scheduler_confirm(f"Send todo to RTM? [{todo_text} {subject_tag}]", default=True):
+                logger.info("User declined sending todo to RTM — skipping")
+                return False
+
             success, sent_message_bytes = self.smtp_client.send_rtm_todo(
                 rtm_email=rtm_email,
                 todo_text=todo_text,
@@ -104,6 +123,8 @@ class TaskProcessor:
             if not success:
                 logger.error(f"Failed to send RTM todo for message {message_id}")
                 return False
+
+            send_output("Todo sent to RTM")
 
             # Mark as read on processor account
             if not imap_client.mark_message_as_read(message_id):
@@ -212,7 +233,9 @@ class TaskProcessor:
                     logger.info(f"Found original email: {original_email_message.subject}")
 
                     # Forward email to assignee if not self
-                    if assignee != "self" and assignee_email and todo_text:
+                    if assignee != "self" and assignee_email and todo_text and scheduler_confirm(
+                        f"Forward email to {assignee} ({assignee_email})?", default=True
+                    ):
                         success = self._forward_to_assignee(
                             source_client, source_account_config, original_email_message,
                             assignee, assignee_email, todo_text, bcc_email, task_tracking_headers or {}
@@ -295,6 +318,7 @@ class TaskProcessor:
                     raise
 
             if forward_success:
+                send_output(f"Forwarded to {assignee}")
                 logger.info(f"Successfully forwarded original email to {assignee}")
                 return True
             else:

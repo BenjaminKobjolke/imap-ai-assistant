@@ -4,6 +4,7 @@ from typing import Dict, Optional
 from src.config.settings import ConfigManager
 from src.email.imap_client import EnhancedImapClient
 from src.ai.openai_client import OpenAIClient
+from src.interaction.scheduler_prompts import scheduler_confirm, send_output
 from src.processors.client_response_generator import ClientResponseGenerator
 from src.processors.relationship_analyzer import RelationshipAnalyzer
 
@@ -70,6 +71,7 @@ class ResponseProcessor:
             logger.debug(f"Email from {sender_email} is not from a known assignee")
             return
 
+        send_output(f"Processing response from {assignee_name}")
         logger.info(f"Processing response from assignee: {assignee_name}")
 
         # Extract email content
@@ -93,14 +95,29 @@ class ResponseProcessor:
         # Use OpenAI to determine if task is completed
         task_status = self._check_task_completion(original_task, body_excerpt)
 
+        # Let user confirm the AI assessment when running interactively
+        status = task_status.get("status", "unclear")
+        confidence = task_status.get("confidence", 0)
+        reason = task_status.get("reason", "")
+        if not scheduler_confirm(
+            f"AI assessment — status: {status}, confidence: {confidence}, reason: {reason}. Accept?",
+            default=True,
+        ):
+            logger.info("User rejected AI assessment — overriding to 'unclear'")
+            task_status = {"status": "unclear", "confidence": 0, "reason": "User override"}
+
+        send_output(f"Task status: {task_status.get('status', 'unclear')}")
+
         if task_status.get("status") == "completed":
             logger.info(f"Task completed by {assignee_name}: {original_task}")
 
             if self.dry_run:
                 logger.info("[DRY RUN] Would generate client response for completed task")
-            else:
+            elif scheduler_confirm("Generate client response for completed task?", default=True):
                 # Generate client response
                 self._generate_client_response(original_task, body_excerpt, main_imap_client)
+            else:
+                logger.info("User declined client response generation — skipping")
 
             logger.info("Task completed - marking response email as read")
         else:
