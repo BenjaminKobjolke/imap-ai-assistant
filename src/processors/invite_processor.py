@@ -151,7 +151,12 @@ class InviteProcessor:
 
             action = InviteProcessor._prompt_user(already_exists)
 
-            if action == "yes":
+            if action == "move":
+                InviteProcessor._move_to_meetings(client, config, invite.message_id, folder)
+                send_output("  Moved to meetings folder.")
+                added += 1
+
+            elif action == "yes":
                 success = InviteProcessor._add_to_calendar(gcal_client, invite)
                 if success:
                     send_output("  Added to Google Calendar.")
@@ -403,9 +408,9 @@ class InviteProcessor:
     def _prompt_user(already_in_calendar: bool) -> str:
         """Prompt user for action on an invite. Returns 'yes', 'no', or 'skip'."""
         if already_in_calendar:
-            options = ["Archive", "Skip"]
-            mapping = ["no", "skip"]
-            default = 1
+            options = ["Move to meetings", "Archive", "Skip"]
+            mapping = ["move", "no", "skip"]
+            default = 0
         else:
             options = ["Add to calendar", "Archive", "Skip"]
             mapping = ["yes", "no", "skip"]
