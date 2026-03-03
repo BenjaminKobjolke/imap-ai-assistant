@@ -29,7 +29,6 @@ class EnhancedImapClient:
         try:
             if self.client.connect():
                 self.connected = True
-                logger.info(f"Connected to IMAP server {self.account.server}")
                 return True
             else:
                 logger.error("Failed to connect to IMAP server")

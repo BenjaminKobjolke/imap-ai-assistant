@@ -61,8 +61,6 @@ class EmailProcessor:
                     max_bytes=max_bytes,
                     backup_count=self.config.log_backup_count
                 )
-                logger.info(f"Application logger initialized with directory: {self.config.log_dir}")
-
                 # Log system startup
                 self.app_logger.log_event(
                     "system",
@@ -120,8 +118,6 @@ class EmailProcessor:
             # Initialize specialized processors
             self.response_processor = ResponseProcessor(self.config, self.openai_client, dry_run=self.dry_run)
             self.task_processor = TaskProcessor(self.config, self.smtp_client, self.openai_client, dry_run=self.dry_run)
-
-            logger.info("All clients and processors initialized successfully")
 
         except Exception as e:
             logger.error(f"Error initializing clients: {e}")

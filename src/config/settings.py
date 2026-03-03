@@ -27,7 +27,6 @@ class ConfigManager:
             with open(config_file, encoding='utf-8') as f:
                 self._config = json.load(f)
 
-            logger.info(f"Configuration loaded from {self.config_path}")
             self._validate_config()
 
         except json.JSONDecodeError as e:
