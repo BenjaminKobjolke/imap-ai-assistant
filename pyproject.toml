@@ -7,7 +7,7 @@ requires-python = ">=3.11"
 dependencies = [
     "openai>=1.0.0",
     "tenacity>=8.0.0",
-    "imap-client-lib @ git+https://github.com/BenjaminKobjolke/imap_client_python.git@6081190",
+    "imap-client-lib @ git+https://github.com/BenjaminKobjolke/imap_client_python.git@583328f",
     "IMAPClient>=3.0.1",
     "python-dateutil>=2.8.0",
     "colorama>=0.4.6",
