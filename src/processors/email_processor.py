@@ -50,6 +50,7 @@ class EmailProcessor:
                 "cleanup_meetings": self.cleanup_meetings,
                 "todays_meetings": self.todays_meetings,
                 "process_invites": self.process_invites,
+                "inbox_zero": self.inbox_zero,
             },
         )
 
@@ -348,6 +349,23 @@ class EmailProcessor:
             InviteProcessor.process_invites(client, self.config, gcal_client, account_config)
         except Exception as e:
             logger.error(f"Error processing invites: {e}")
+        finally:
+            client.disconnect()
+
+    def inbox_zero(self) -> None:
+        """Interactively process INBOX emails one by one to achieve inbox zero."""
+        from src.processors.inbox_zero import InboxZero
+
+        client = self._connect_main_account()
+        if not client:
+            return
+        try:
+            InboxZero.process_inbox(
+                client, self.config, self.smtp_client, self.openai_client,
+                dry_run=self.dry_run,
+            )
+        except Exception as e:
+            logger.error(f"Error during inbox-zero: {e}")
         finally:
             client.disconnect()
 

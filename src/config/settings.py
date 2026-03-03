@@ -419,6 +419,11 @@ class ConfigManager:
             logger.error(f"Failed to save config: {e}")
 
     @property
+    def trash_folder(self) -> str:
+        """Get the IMAP trash folder path."""
+        return self._config.get("trash_folder", "Trash")
+
+    @property
     def search_results_folder(self) -> str:
         """IMAP folder to copy search results into."""
         return self._config.get("search", {}).get("results_folder", "search-results")

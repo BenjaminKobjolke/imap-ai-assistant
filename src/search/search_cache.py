@@ -252,6 +252,28 @@ class SearchCache:
         return [dict(row) for row in rows]
 
     # ------------------------------------------------------------------
+    # Folder suggestion
+    # ------------------------------------------------------------------
+
+    def suggest_folder_for_sender(self, from_address: str) -> str | None:
+        """Return the most common folder for emails from this sender, excluding INBOX."""
+        if not from_address:
+            return None
+        row = self._conn.execute(
+            """SELECT folder, COUNT(*) AS cnt
+               FROM email_cache
+               WHERE LOWER(from_address) = LOWER(?)
+                 AND LOWER(folder) != 'inbox'
+               GROUP BY folder
+               ORDER BY cnt DESC
+               LIMIT 1""",
+            (from_address,),
+        ).fetchone()
+        if row:
+            return row["folder"]
+        return None
+
+    # ------------------------------------------------------------------
     # Stats
     # ------------------------------------------------------------------
 

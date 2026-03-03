@@ -76,6 +76,8 @@ def main():
                         help='Remove a keyword-based subject tag rule by tag')
     parser.add_argument('--dry-run', action='store_true',
                         help='Run without sending emails, moving messages, or marking as read')
+    parser.add_argument('--inbox-zero', action='store_true',
+                        help='Interactively process INBOX emails one by one')
     parser.add_argument('--search', nargs='?', const='__wizard__', metavar='TERM',
                         help='Search emails. Prefix with to:/from:/s: for field-specific. No arg = wizard.')
     parser.add_argument('--body', metavar='TERM', help='Search body text (use with --search)')
@@ -233,6 +235,10 @@ def main():
             processor.list_workflows()
         else:
             processor.run_workflow(args.workflow)
+        return
+
+    if args.inbox_zero:
+        processor.inbox_zero()
         return
 
     if args.update_cache:
