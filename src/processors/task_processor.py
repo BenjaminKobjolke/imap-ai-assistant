@@ -9,6 +9,7 @@ from src.config.settings import ConfigManager
 from src.email.imap_client import EnhancedImapClient
 from src.email.smtp_client import SmtpClient
 from src.interaction.scheduler_prompts import scheduler_ask, scheduler_choose, scheduler_confirm, send_output
+from src.processors.rtm_todo import RtmTodoCreator
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +48,7 @@ class TaskProcessor:
 
             # Process with OpenAI
             logger.info("📨 About to call process_email_to_todo...")
-            result = self.openai_client.process_email_to_todo(subject, first_line, body_excerpt)
+            result = RtmTodoCreator.generate_todo(self.openai_client, subject, first_line, body_excerpt)
             if not result:
                 logger.error(f"Failed to generate todo for message {message_id}")
                 return False
@@ -74,7 +75,7 @@ class TaskProcessor:
             subject_tag = processing_rules["additional_subject_tag"]
 
             # Append extra tags from sender/keyword rules
-            extra_tags = self._resolve_extra_tags(email_message.from_address, subject)
+            extra_tags = RtmTodoCreator.resolve_extra_tags(self.config, email_message.from_address, subject)
             if extra_tags:
                 subject_tag = f"{subject_tag} {extra_tags}"
             assignee_email = processing_rules.get("email_address", "")
@@ -86,12 +87,6 @@ class TaskProcessor:
                 "X-IMAP-Assistant-Original-Sender": email_message.from_address,
                 "X-IMAP-Assistant-Created": task_created
             }
-
-            # Send to Remember the Milk
-            rtm_email = self.config.rtm_email
-            if not rtm_email:
-                logger.error("RTM email address not configured")
-                return False
 
             if self.dry_run:
                 final_subject = f"{todo_text} {subject_tag}"
@@ -111,13 +106,9 @@ class TaskProcessor:
                 logger.info("User declined sending todo to RTM — skipping")
                 return False
 
-            success, sent_message_bytes = self.smtp_client.send_rtm_todo(
-                rtm_email=rtm_email,
-                todo_text=todo_text,
-                subject_tag=subject_tag,
-                original_subject=subject,
-                original_sender=email_message.from_address,
-                task_tracking_headers=task_tracking_headers
+            success, sent_message_bytes = RtmTodoCreator.send_todo(
+                self.smtp_client, self.config, todo_text, subject_tag,
+                subject, email_message.from_address, task_tracking_headers,
             )
 
             if not success:
@@ -160,28 +151,6 @@ class TaskProcessor:
         except Exception as e:
             logger.error(f"Error processing single email {message_id}: {e}")
             return False
-
-    def _resolve_extra_tags(self, sender: str, subject: str) -> str:
-        """Evaluate sender and keyword tag rules, return extra tags to append."""
-        rules = self.config.get_subject_tag_rules()
-        tags: list[str] = []
-        sender_lower = sender.lower()
-        subject_lower = subject.lower()
-
-        for rule in rules["sender_rules"]:
-            if rule["pattern"].lower() in sender_lower:
-                tags.append(rule["tag"])
-
-        for rule in rules["keyword_rules"]:
-            keywords = [kw.lower() for kw in rule["keywords"]]
-            match_mode = rule.get("match", "all")
-            if match_mode == "all":
-                if all(kw in subject_lower for kw in keywords):
-                    tags.append(rule["tag"])
-            elif match_mode == "any" and any(kw in subject_lower for kw in keywords):
-                tags.append(rule["tag"])
-
-        return " ".join(tags)
 
     def _handle_original_email(self, email_message, subject: str, target_folder: str,
                                assignee: str = "self", assignee_email: str = "", todo_text: str = "",
