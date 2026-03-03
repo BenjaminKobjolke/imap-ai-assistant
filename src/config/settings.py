@@ -416,6 +416,21 @@ class ConfigManager:
         except Exception as e:
             logger.error(f"Failed to save config: {e}")
 
+    @property
+    def search_results_folder(self) -> str:
+        """IMAP folder to copy search results into."""
+        return self._config.get("search", {}).get("results_folder", "search-results")
+
+    @property
+    def search_cache_validity_days(self) -> int:
+        """How many days before cached data is considered stale."""
+        return self._config.get("search", {}).get("cache_validity_days", 30)
+
+    @property
+    def search_cache_path(self) -> Path:
+        """Path to the SQLite search cache database."""
+        return Path(self._config.get("search", {}).get("cache_db", "data/email_cache.db"))
+
     def get_account_smtp_config(self, account_config: dict | None = None) -> dict | None:
         """Get SMTP configuration from a specific account entry.
 

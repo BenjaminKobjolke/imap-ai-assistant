@@ -70,6 +70,16 @@ def main():
                         help='Remove a keyword-based subject tag rule by tag')
     parser.add_argument('--dry-run', action='store_true',
                         help='Run without sending emails, moving messages, or marking as read')
+    parser.add_argument('--search', nargs='?', const='__wizard__', metavar='TERM',
+                        help='Search emails. Prefix with to:/from:/s: for field-specific. No arg = wizard.')
+    parser.add_argument('--body', metavar='TERM', help='Search body text (use with --search)')
+    parser.add_argument('--date', metavar='DD.MM.YYYY', help='Filter by exact date')
+    parser.add_argument('--date-after', metavar='DATE', help='Filter emails after date')
+    parser.add_argument('--date-before', metavar='DATE', help='Filter emails before date')
+    parser.add_argument('--path', metavar='FOLDER', help='Search in specific IMAP folder')
+    parser.add_argument('--update-cache', action='store_true', help='Rebuild email search cache')
+    parser.add_argument('--folders', metavar='FOLDERS',
+                        help='Semicolon-separated folder list for --update-cache')
     parser.add_argument('--config', default='settings.json', help='Path to configuration file')
 
     args = parser.parse_args()
@@ -215,6 +225,24 @@ def main():
             processor.list_workflows()
         else:
             processor.run_workflow(args.workflow)
+        return
+
+    if args.update_cache:
+        processor.update_search_cache(folders=args.folders)
+        return
+
+    if args.search is not None:
+        if args.search == '__wizard__':
+            processor.search_wizard()
+        else:
+            processor.search_emails(
+                search_term=args.search,
+                body_term=args.body,
+                date=args.date,
+                date_after=args.date_after,
+                date_before=args.date_before,
+                path=args.path,
+            )
         return
 
     # No arguments: show help

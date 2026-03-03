@@ -17,6 +17,7 @@ from src.processors.response_processor import ResponseProcessor
 from src.processors.tag_rules_wizard import TagRulesWizard
 from src.processors.task_processor import TaskProcessor
 from src.processors.workflow_runner import WorkflowRunner
+from src.search.email_search import EmailSearch
 
 logger = logging.getLogger(__name__)
 
@@ -436,6 +437,76 @@ class EmailProcessor:
             "subject_tag": self.config.subject_tag,
             "openai_model": self.config.openai_model
         }
+
+    # -- Search delegations ---------------------------------------------------------
+
+    def search_emails(
+        self,
+        search_term: str,
+        body_term: str | None = None,
+        date: str | None = None,
+        date_after: str | None = None,
+        date_before: str | None = None,
+        path: str | None = None,
+    ) -> None:
+        """Search emails using the cached index."""
+        account_config = self.config.get_first_account()
+        if not account_config:
+            logger.error("No main account configuration found")
+            return
+
+        client = EnhancedImapClient(account_config)
+        if not client.connect():
+            logger.error("Failed to connect to IMAP server")
+            return
+
+        try:
+            EmailSearch.search(
+                client, self.config, search_term, body_term,
+                date, date_after, date_before, path,
+            )
+        except Exception as e:
+            logger.error(f"Error searching emails: {e}")
+        finally:
+            client.disconnect()
+
+    def search_wizard(self) -> None:
+        """Interactive search wizard."""
+        account_config = self.config.get_first_account()
+        if not account_config:
+            logger.error("No main account configuration found")
+            return
+
+        client = EnhancedImapClient(account_config)
+        if not client.connect():
+            logger.error("Failed to connect to IMAP server")
+            return
+
+        try:
+            EmailSearch.wizard(client, self.config)
+        except Exception as e:
+            logger.error(f"Error in search wizard: {e}")
+        finally:
+            client.disconnect()
+
+    def update_search_cache(self, folders: str | None = None) -> None:
+        """Rebuild the email search cache."""
+        account_config = self.config.get_first_account()
+        if not account_config:
+            logger.error("No main account configuration found")
+            return
+
+        client = EnhancedImapClient(account_config)
+        if not client.connect():
+            logger.error("Failed to connect to IMAP server")
+            return
+
+        try:
+            EmailSearch.update_cache(client, self.config, folders)
+        except Exception as e:
+            logger.error(f"Error updating search cache: {e}")
+        finally:
+            client.disconnect()
 
     # -- Workflow delegations -------------------------------------------------------
 
