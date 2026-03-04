@@ -39,22 +39,25 @@ class InboxZero:
         openai_client: OpenAIClient,
         *,
         dry_run: bool = False,
+        unread_only: bool = False,
     ) -> None:
         """Walk through each INBOX email and let the user decide what to do."""
         send_output("Loading INBOX...")
 
-        messages = client.client.get_all_messages(folder="INBOX", include_attachments=False)
+        if unread_only:
+            messages = client.client.get_unread_messages()
+        else:
+            messages = client.client.get_all_messages(folder="INBOX", include_attachments=False)
+
         if not messages:
             send_output("INBOX is empty — nothing to do.")
             return
 
-        # Most recent first
-        messages = list(reversed(messages))
-
         cache = SearchCache(config.search_cache_path)
         counters = InboxZeroCounters(total=len(messages))
 
-        send_output(f"Found {counters.total} email(s) in INBOX.\n")
+        label = "unread email(s)" if unread_only else "email(s)"
+        send_output(f"Found {counters.total} {label} in INBOX.\n")
 
         try:
             for i, (msg_id, email_msg) in enumerate(messages, 1):

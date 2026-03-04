@@ -352,7 +352,7 @@ class EmailProcessor:
         finally:
             client.disconnect()
 
-    def inbox_zero(self) -> None:
+    def inbox_zero(self, *, unread_only: bool = False) -> None:
         """Interactively process INBOX emails one by one to achieve inbox zero."""
         from src.processors.inbox_zero import InboxZero
 
@@ -363,6 +363,7 @@ class EmailProcessor:
             InboxZero.process_inbox(
                 client, self.config, self.smtp_client, self.openai_client,
                 dry_run=self.dry_run,
+                unread_only=unread_only,
             )
         except Exception as e:
             logger.error(f"Error during inbox-zero: {e}")
