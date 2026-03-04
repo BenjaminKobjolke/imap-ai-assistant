@@ -332,12 +332,8 @@ class EmailProcessor:
         """Interactively process meeting invite emails with Google Calendar."""
         from src.calendar.google_calendar_client import GoogleCalendarClient
 
-        gcal_client = GoogleCalendarClient(
-            credentials_path=self.config.google_calendar_credentials_path,
-            token_path=self.config.google_calendar_token_path,
-            calendar_id=self.config.accepts_meetings_calendar_id,
-        )
-        if not gcal_client.authenticate():
+        gcal_client = GoogleCalendarClient.from_config(self.config)
+        if gcal_client is None:
             logger.error("Failed to authenticate with Google Calendar")
             return
 
@@ -346,7 +342,8 @@ class EmailProcessor:
         if not client or not account_config:
             return
         try:
-            InviteProcessor.process_invites(client, self.config, gcal_client, account_config)
+            processor = InviteProcessor(client, self.config, gcal_client, account_config)
+            processor.process_invites()
         except Exception as e:
             logger.error(f"Error processing invites: {e}")
         finally:
@@ -354,16 +351,27 @@ class EmailProcessor:
 
     def inbox_zero(self, *, unread_only: bool = False) -> None:
         """Interactively process INBOX emails one by one to achieve inbox zero."""
+        from src.calendar.google_calendar_client import GoogleCalendarClient
         from src.processors.inbox_zero import InboxZero
+
+        gcal_client = GoogleCalendarClient.from_config(self.config)
+        if gcal_client is None:
+            logger.info("Google Calendar not available — invite calendar features disabled")
+
+        account_config = self.config.get_first_account()
 
         client = self._connect_main_account()
         if not client:
             return
+
+        invite_processor = InviteProcessor(client, self.config, gcal_client, account_config)
+
         try:
             InboxZero.process_inbox(
                 client, self.config, self.smtp_client, self.openai_client,
                 dry_run=self.dry_run,
                 unread_only=unread_only,
+                invite_processor=invite_processor,
             )
         except Exception as e:
             logger.error(f"Error during inbox-zero: {e}")

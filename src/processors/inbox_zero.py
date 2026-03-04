@@ -4,35 +4,23 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from email.utils import parseaddr
 
 from src.ai.openai_client import OpenAIClient
 from src.config.settings import ConfigManager
 from src.constants import (
-    ACTION_DRAFT_REPLY,
     ACTION_SHOW_BODY,
-    CFG_TARGET_FOLDER,
     FOLDER_INBOX,
     MIME_TEXT_HTML,
     MIME_TEXT_PLAIN,
 )
 from src.email.imap_client import EnhancedImapClient
 from src.email.smtp_client import SmtpClient
-from src.interaction.scheduler_prompts import SchedulerChoice, scheduler_ask, send_output
-from src.processors.draft_composer import DraftComposer, DraftContext
-from src.processors.draft_email_builder import DraftEmailBuilder, DraftEmailContent
-from src.processors.greeting_builder import GreetingBuilder
-from src.processors.rtm_todo import RtmTodoCreator
-from src.processors.salutation_manager import SalutationManager
+from src.interaction.scheduler_prompts import SchedulerChoice, send_output
+from src.processors.email_action_processor import EmailActionProcessor
+from src.processors.invite_processor import InviteProcessor
 from src.search.search_cache import SearchCache
 
 logger = logging.getLogger(__name__)
-
-_MAX_FOLDER_MATCHES = 5
-
-
-class _AbortInboxZeroError(Exception):
-    """Raised from any prompt to abort the entire inbox-zero flow."""
 
 
 @dataclass
@@ -44,6 +32,8 @@ class InboxZeroCounters:
     todoed: int = 0
     skipped: int = 0
     trashed: int = 0
+    calendar_added: int = 0
+    calendar_deleted: int = 0
 
 
 class InboxZero:
@@ -58,6 +48,7 @@ class InboxZero:
         *,
         dry_run: bool = False,
         unread_only: bool = False,
+        invite_processor: InviteProcessor | None = None,
     ) -> None:
         """Walk through each INBOX email and let the user decide what to do."""
         send_output("Loading INBOX...")
@@ -65,69 +56,93 @@ class InboxZero:
         if unread_only:
             messages = client.client.get_unread_messages()
         else:
-            messages = client.client.get_all_messages(folder=FOLDER_INBOX, include_attachments=False)
+            messages = client.client.get_all_messages(
+                folder=FOLDER_INBOX, include_attachments=True,
+            )
 
         if not messages:
             send_output("INBOX is empty — nothing to do.")
             return
 
         cache = SearchCache(config.search_cache_path)
+        action_processor = EmailActionProcessor(
+            client, config, smtp_client, openai_client, cache,
+        )
         counters = InboxZeroCounters(total=len(messages))
 
         label = "unread email(s)" if unread_only else "email(s)"
         send_output(f"Found {counters.total} {label} in INBOX.\n")
 
+        if invite_processor is not None:
+            invite_processor.ensure_calendar_selected()
+
         try:
             try:
                 for i, (msg_id, email_msg) in enumerate(messages, 1):
-                    InboxZero._display_email(email_msg, i, counters.total)
+                    # Detect whether this is a meeting invite
+                    invite = None
+                    if invite_processor is not None:
+                        invite = invite_processor.detect_invite(msg_id, email_msg)
 
-                    from_addr = InboxZero._extract_from_address(email_msg)
-                    suggestion = cache.suggest_folder_for_sender(from_addr)
+                    if invite is not None:
+                        assert invite_processor is not None
+                        invite_processor.display_invite(invite, i, counters.total)
+                        options = invite_processor.get_invite_options(invite)
+                    else:
+                        InboxZero._display_email(email_msg, i, counters.total)
+                        from_addr = InboxZero._extract_from_address(email_msg)
+                        suggestion = cache.suggest_folder_for_sender(from_addr)
+                        options = action_processor.get_options(suggestion)
 
+                    # Append generic options
+                    options.extend([
+                        ("Skip", "skip"),
+                        ("Trash", "trash"),
+                        ("Show body", ACTION_SHOW_BODY),
+                    ])
+
+                    # Action loop (show body and draft reply loop back)
                     while True:
-                        action = InboxZero._prompt_action(suggestion)
+                        action = SchedulerChoice("Action:", options, abort=True).choose()
 
                         if action == ACTION_SHOW_BODY:
-                            excerpt = InboxZero._get_body_excerpt(email_msg)
-                            send_output(f"\n{excerpt}\n")
+                            InboxZero._show_body_paginated(email_msg)
                             continue
-                        if action == ACTION_DRAFT_REPLY:
-                            InboxZero._action_draft_reply(
-                                client, config, openai_client, cache, email_msg,
+
+                        if action == "abort":
+                            send_output("Aborting inbox-zero.")
+                            raise _AbortInboxZeroError
+
+                        if action == "skip":
+                            counters.skipped += 1
+                            send_output("  Skipped.\n")
+                            break
+
+                        if action == "trash":
+                            if InboxZero._action_trash(client, config, msg_id, dry_run=dry_run):
+                                counters.trashed += 1
+                            break
+
+                        # Delegate to appropriate processor
+                        if invite is not None and invite_processor is not None:
+                            result = invite_processor.execute_invite_action(
+                                action, invite, dry_run=dry_run,
                             )
+                        else:
+                            result = action_processor.execute_action(
+                                action, msg_id, email_msg, suggestion,
+                                dry_run=dry_run,
+                            )
+
+                        if result.continue_loop:
                             continue
+
+                        if result.action_type == "abort":
+                            raise _AbortInboxZeroError
+
+                        # Update counters
+                        InboxZero._update_counters(counters, result.action_type)
                         break
-
-                    if action == "abort":
-                        send_output("Aborting inbox-zero.")
-                        break
-
-                    if action == "skip":
-                        counters.skipped += 1
-                        send_output("  Skipped.\n")
-                        continue
-
-                    if action in ("move_suggested", "move_other"):
-                        target = suggestion if action == "move_suggested" else None
-                        success = InboxZero._action_move(
-                            client, config, msg_id, target, dry_run=dry_run,
-                        )
-                        if success:
-                            counters.moved += 1
-
-                    elif action == "todo":
-                        success = InboxZero._action_todo(
-                            client, config, smtp_client, openai_client,
-                            msg_id, email_msg, dry_run=dry_run,
-                        )
-                        if success:
-                            counters.todoed += 1
-
-                    elif action == "trash":
-                        success = InboxZero._action_trash(client, config, msg_id, dry_run=dry_run)
-                        if success:
-                            counters.trashed += 1
 
                     send_output("")
 
@@ -138,6 +153,24 @@ class InboxZero:
             cache.close()
 
         InboxZero._display_summary(counters)
+
+    # ------------------------------------------------------------------
+    # Counter helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _update_counters(counters: InboxZeroCounters, action_type: str) -> None:
+        """Increment the appropriate counter based on action result."""
+        if action_type == "moved":
+            counters.moved += 1
+        elif action_type == "todoed":
+            counters.todoed += 1
+        elif action_type == "calendar_added":
+            counters.calendar_added += 1
+        elif action_type == "calendar_deleted":
+            counters.calendar_deleted += 1
+        elif action_type == "archived":
+            counters.moved += 1
 
     # ------------------------------------------------------------------
     # Display helpers
@@ -162,117 +195,23 @@ class InboxZero:
     @staticmethod
     def _display_summary(counters: InboxZeroCounters) -> None:
         """Show final summary of actions taken."""
-        send_output(
-            f"\nInbox zero summary: {counters.total} email(s) | "
-            f"{counters.moved} moved | {counters.todoed} todoed | "
-            f"{counters.skipped} skipped | {counters.trashed} trashed"
-        )
+        parts = [
+            f"{counters.total} email(s)",
+            f"{counters.moved} moved",
+            f"{counters.todoed} todoed",
+            f"{counters.skipped} skipped",
+            f"{counters.trashed} trashed",
+        ]
+        if counters.calendar_added:
+            parts.append(f"{counters.calendar_added} calendar-added")
+        if counters.calendar_deleted:
+            parts.append(f"{counters.calendar_deleted} calendar-deleted")
+
+        send_output(f"\nInbox zero summary: {' | '.join(parts)}")
 
     # ------------------------------------------------------------------
-    # User prompt
+    # Generic actions
     # ------------------------------------------------------------------
-
-    @staticmethod
-    def _prompt_action(suggestion: str | None) -> str:
-        """Present the action menu. Returns action key."""
-        if suggestion:
-            choices = [
-                (f"Move to '{suggestion}'", "move_suggested"),
-                ("Move to other folder", "move_other"),
-                ("Add todo", "todo"),
-                ("Draft a reply", ACTION_DRAFT_REPLY),
-                ("Skip", "skip"),
-                ("Trash", "trash"),
-                ("Show body", ACTION_SHOW_BODY),
-            ]
-        else:
-            choices = [
-                ("Move to folder", "move_other"),
-                ("Add todo", "todo"),
-                ("Draft a reply", ACTION_DRAFT_REPLY),
-                ("Skip", "skip"),
-                ("Trash", "trash"),
-                ("Show body", ACTION_SHOW_BODY),
-            ]
-
-        return SchedulerChoice("Action:", choices, abort=True).choose()
-
-    # ------------------------------------------------------------------
-    # Actions
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    def _action_move(
-        client: EnhancedImapClient,
-        config: ConfigManager,
-        msg_id: object,
-        target: str | None,
-        *,
-        dry_run: bool = False,
-    ) -> bool:
-        """Move email to a target folder."""
-        if target is None:
-            target = InboxZero._search_folder(client)
-        if not target:
-            send_output("  No folder selected — skipping.")
-            return False
-
-        if dry_run:
-            send_output(f"  DRY RUN: would move to '{target}'")
-            return True
-
-        try:
-            client.client.client.select_folder(FOLDER_INBOX)
-            client.client.mark_as_read(str(msg_id))
-            success = client.client.move_to_folder(msg_id, target)
-            if success:
-                send_output(f"  Moved to '{target}'")
-            else:
-                send_output(f"  Failed to move to '{target}'")
-            return bool(success)
-        except Exception as e:
-            logger.error("Failed to move email: %s", e)
-            send_output(f"  Error moving email: {e}")
-            return False
-
-    @staticmethod
-    def _action_todo(
-        client: EnhancedImapClient,
-        config: ConfigManager,
-        smtp_client: SmtpClient,
-        openai_client: OpenAIClient,
-        msg_id: object,
-        email_msg: object,
-        *,
-        dry_run: bool = False,
-    ) -> bool:
-        """Create an RTM todo from the email, then move to target folder."""
-        subject, first_line, body_excerpt = client.extract_email_content(email_msg)
-        from_address = getattr(email_msg, "from_address", "") or ""
-
-        success, _todo_text = RtmTodoCreator.create_and_send(
-            openai_client, smtp_client, config,
-            subject, first_line, body_excerpt, from_address,
-            dry_run=dry_run,
-        )
-        if not success:
-            return False
-
-        # Move to the "my own tasks" target folder
-        target_folder = config.get_processing_rules("self")[CFG_TARGET_FOLDER]
-        if dry_run:
-            send_output(f"  DRY RUN: would move to '{target_folder}'")
-            return True
-
-        try:
-            client.client.client.select_folder(FOLDER_INBOX)
-            client.client.mark_as_read(str(msg_id))
-            client.client.move_to_folder(msg_id, target_folder)
-            send_output(f"  Moved to '{target_folder}'")
-        except Exception as e:
-            logger.warning("Failed to move email after todo: %s", e)
-
-        return True
 
     @staticmethod
     def _action_trash(
@@ -303,127 +242,43 @@ class InboxZero:
             send_output(f"  Error trashing email: {e}")
             return False
 
-    @staticmethod
-    def _action_draft_reply(
-        client: EnhancedImapClient,
-        config: ConfigManager,
-        openai_client: OpenAIClient,
-        cache: SearchCache,
-        email_msg: object,
-    ) -> None:
-        """Draft a reply to the email using AI."""
-        from_addr_raw = getattr(email_msg, "from_address", "") or ""
-        _, from_addr = parseaddr(from_addr_raw)
-        from_name = from_addr_raw.replace(f"<{from_addr}>", "").strip().strip('"')
-        subject = getattr(email_msg, "subject", "") or ""
-        body = InboxZero._get_body_excerpt(email_msg, max_chars=2000)
-
-        # 1. Resolve salutation
-        sal_mgr = SalutationManager(cache, config, openai_client, client)
-        salutation_info = sal_mgr.resolve_salutation(from_addr)
-
-        # 2. Build greeting
-        greeting = GreetingBuilder.build_greeting(salutation_info)
-
-        # 3. Compose draft via interactive loop
-        context = DraftContext(
-            original_subject=subject,
-            original_body=body,
-            original_from_address=from_addr,
-            original_from_name=from_name,
-            greeting=greeting,
-        )
-        composer = DraftComposer(openai_client)
-        final_body = composer.compose(context)
-
-        if not final_body:
-            send_output("  Draft cancelled.")
-            return
-
-        # 4. Build and save draft email
-        builder = DraftEmailBuilder(config, client)
-        content = DraftEmailContent(
-            to_address=from_addr,
-            subject=DraftEmailBuilder.make_reply_subject(subject),
-            greeting=greeting,
-            body_text=final_body,
-            footer_html=DraftEmailBuilder.load_footer_html(),
-            original_from=from_addr_raw,
-            original_subject=subject,
-            original_body=body,
-        )
-        builder.build_and_save(content)
-
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _search_folder(client: EnhancedImapClient) -> str | None:
-        """Search for a destination folder by partial name."""
-        try:
-            all_folders = sorted(client.client.list_folders())
-        except Exception as e:
-            logger.error("Could not list folders: %s", e)
-            send_output(f"  Could not list folders: {e}")
-            return None
-
-        if not all_folders:
-            send_output("  No folders found.")
-            return None
-
-        return InboxZero._folder_search_loop(all_folders)
-
-    @staticmethod
-    def _folder_search_loop(all_folders: list[str]) -> str | None:
-        """Prompt for a partial folder name, filter, and let the user pick."""
-        while True:
-            query = scheduler_ask(
-                "Type part of the folder name (or 'cancel' / 'abort'):", default="",
-            )
-            query = query.strip()
-            if not query or query.lower() == "cancel":
-                return None
-            if query.lower() == "abort":
-                raise _AbortInboxZeroError
-
-            matches = [
-                f for f in all_folders if query.lower() in f.lower()
-            ]
-
-            if not matches:
-                send_output(f"  No folders matching '{query}'. Try again.")
-                continue
-
-            if len(matches) > _MAX_FOLDER_MATCHES:
-                send_output(
-                    f"  {len(matches)} matches — showing first {_MAX_FOLDER_MATCHES}. "
-                    "Refine your search for better results.",
-                )
-                matches = matches[:_MAX_FOLDER_MATCHES]
-
-            result = InboxZero._pick_from_matches(matches)
-            if result is not None:
-                return result
-            # user chose "Search again" — loop continues
-
-    @staticmethod
-    def _pick_from_matches(matches: list[str]) -> str | None:
-        """Show matched folders and let the user pick one or search again."""
-        choices = [(m, m) for m in matches] + [("Search again", "search_again")]
-        result = SchedulerChoice("Select folder:", choices, abort=True).choose()
-        if result == "abort":
-            raise _AbortInboxZeroError
-        if result == "search_again":
-            return None
-        return result
-
-    @staticmethod
     def _extract_from_address(email_msg: object) -> str:
         """Extract the bare email address from the from_address field."""
+        from email.utils import parseaddr
+
         raw = getattr(email_msg, "from_address", "") or ""
         _, addr = parseaddr(raw)
         return addr
+
+    @staticmethod
+    def _show_body_paginated(email_msg: object, lines_per_page: int = 5) -> None:
+        """Show the email body a few lines at a time with a 'More' option."""
+        full_body = InboxZero._get_body_excerpt(email_msg, max_chars=5000)
+        lines = full_body.splitlines()
+
+        shown = 0
+        while shown < len(lines):
+            chunk = "\n".join(lines[shown : shown + lines_per_page])
+            send_output(f"\n{chunk}")
+            shown += lines_per_page
+
+            if shown < len(lines):
+                action = SchedulerChoice(
+                    "",
+                    [
+                        ("More", "more"),
+                        ("Done", "done"),
+                    ],
+                ).choose()
+                if action != "more":
+                    break
+
+        send_output("")
 
     @staticmethod
     def _get_body_excerpt(email_msg: object, max_chars: int = 800) -> str:
@@ -440,3 +295,7 @@ class InboxZero:
         if not body:
             return "(no body content)"
         return str(body)[:max_chars]
+
+
+class _AbortInboxZeroError(Exception):
+    """Raised from any prompt to abort the entire inbox-zero flow."""

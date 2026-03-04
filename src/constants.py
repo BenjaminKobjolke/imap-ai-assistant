@@ -77,6 +77,14 @@ ACTION_DRAFT_REPLY = "draft_reply"
 ACTION_SHOW_BODY = "show_body"
 
 # ---------------------------------------------------------------------------
+# Invite action keys (used by InviteProcessor / inbox-zero)
+# ---------------------------------------------------------------------------
+ACTION_ADD_CALENDAR = "add_calendar"
+ACTION_ARCHIVE_INVITE = "archive_invite"
+ACTION_DELETE_CALENDAR = "delete_calendar"
+ACTION_MOVE_MEETINGS = "move_meetings"
+
+# ---------------------------------------------------------------------------
 # Greeting constants
 # ---------------------------------------------------------------------------
 GREETING_MORNING = "Guten Morgen"

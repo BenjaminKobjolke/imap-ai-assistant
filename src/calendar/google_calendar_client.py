@@ -28,6 +28,27 @@ class GoogleCalendarClient:
         self.calendar_id = calendar_id
         self.service = None
 
+    @classmethod
+    def from_config(
+        cls,
+        config: object,
+        *,
+        calendar_id: str | None = None,
+    ) -> GoogleCalendarClient | None:
+        """Create and authenticate a client from a ConfigManager.
+
+        Returns the authenticated client, or ``None`` when authentication
+        fails (e.g. missing credentials file, no browser available).
+        """
+        client = cls(
+            credentials_path=config.google_calendar_credentials_path,  # type: ignore[attr-defined]
+            token_path=config.google_calendar_token_path,  # type: ignore[attr-defined]
+            calendar_id=calendar_id or config.accepts_meetings_calendar_id,  # type: ignore[attr-defined]
+        )
+        if not client.authenticate():
+            return None
+        return client
+
     def authenticate(self) -> bool:
         """Authenticate with Google Calendar API using OAuth2.
 

@@ -20,12 +20,8 @@ class CalendarSetup:
         """Interactive setup for meeting calendar and conflict-check calendars."""
         from src.calendar.google_calendar_client import GoogleCalendarClient
 
-        gcal_client = GoogleCalendarClient(
-            credentials_path=self.config.google_calendar_credentials_path,
-            token_path=self.config.google_calendar_token_path,
-            calendar_id=self.config.accepts_meetings_calendar_id,
-        )
-        if not gcal_client.authenticate():
+        gcal_client = GoogleCalendarClient.from_config(self.config)
+        if gcal_client is None:
             logger.error("Failed to authenticate with Google Calendar")
             return
 
@@ -201,12 +197,8 @@ class CalendarSetup:
         """List all available Google Calendars for the authenticated user."""
         from src.calendar.google_calendar_client import GoogleCalendarClient
 
-        gcal_client = GoogleCalendarClient(
-            credentials_path=self.config.google_calendar_credentials_path,
-            token_path=self.config.google_calendar_token_path,
-            calendar_id=self.config.accepts_meetings_calendar_id,
-        )
-        if not gcal_client.authenticate():
+        gcal_client = GoogleCalendarClient.from_config(self.config)
+        if gcal_client is None:
             logger.error("Failed to authenticate with Google Calendar")
             return
 
@@ -240,12 +232,10 @@ class CalendarSetup:
 
         calendar_id = self.config.add_date_calendar_id
 
-        gcal_client = GoogleCalendarClient(
-            credentials_path=self.config.google_calendar_credentials_path,
-            token_path=self.config.google_calendar_token_path,
-            calendar_id=calendar_id,
+        gcal_client = GoogleCalendarClient.from_config(
+            self.config, calendar_id=calendar_id,
         )
-        if not gcal_client.authenticate():
+        if gcal_client is None:
             logger.error("Failed to authenticate with Google Calendar")
             return
 
