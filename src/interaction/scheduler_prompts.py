@@ -60,10 +60,21 @@ def scheduler_ask(message: str, *, default: str) -> str:
     return raw if raw else default
 
 
-def scheduler_choose(message: str, options: list[str], *, default: int) -> int:
-    """Choose from *options*. Delegates to SDK or falls back to console input."""
+def scheduler_choose(
+    message: str,
+    options: list[str],
+    *,
+    default: int,
+    hidden_options: dict[str, str] | None = None,
+) -> int:
+    """Choose from *options*. Delegates to SDK or falls back to console input.
+
+    *hidden_options* maps shortcut keys to labels. They are accepted as input
+    but not displayed in the numbered list. When a hidden shortcut is selected,
+    the return value is ``len(options) + position`` in the hidden_options dict.
+    """
     if _is_interactive():
-        result = choose(message, options, default=default)
+        result = choose(message, options, default=default, hidden_options=hidden_options)
         if result is None:
             raise SchedulerAbortError("User did not answer choose prompt")
         return int(result)
@@ -73,10 +84,18 @@ def scheduler_choose(message: str, options: list[str], *, default: int) -> int:
         marker = " *" if i == default else ""
         print(f"  [{i}] {opt}{marker}")
 
+    hidden_keys: list[str] = []
+    if hidden_options:
+        hidden_keys = list(hidden_options.keys())
+        hints = ", ".join(f"{k}={label}" for k, label in hidden_options.items())
+        print(f"  ({hints})")
+
     while True:
         raw = input(f"Choice [{default}]: ").strip()
         if not raw:
             return default
+        if raw in hidden_keys:
+            return len(options) + hidden_keys.index(raw)
         try:
             val = int(raw)
             if 0 <= val < len(options):
@@ -84,6 +103,36 @@ def scheduler_choose(message: str, options: list[str], *, default: int) -> int:
         except ValueError:
             pass
         print(f"  Please enter 0-{len(options) - 1}")
+
+
+class SchedulerChoice:
+    """Maps display labels to action keys for scheduler_choose."""
+
+    _ABORT_KEY = "a"
+    _ABORT_LABEL = "Abort"
+    _ABORT_ACTION = "abort"
+
+    def __init__(
+        self,
+        prompt: str,
+        choices: list[tuple[str, str]],
+        *,
+        default: int = 0,
+        abort: bool = False,
+    ) -> None:
+        self._prompt = prompt
+        self._choices = choices
+        self._default = default
+        self._abort = abort
+
+    def choose(self) -> str:
+        """Show the menu and return the selected key."""
+        labels = [label for label, _ in self._choices]
+        hidden = {self._ABORT_KEY: self._ABORT_LABEL} if self._abort else None
+        index = scheduler_choose(self._prompt, labels, default=self._default, hidden_options=hidden)
+        if index < len(self._choices):
+            return self._choices[index][1]
+        return self._ABORT_ACTION
 
 
 def send_output(text: str) -> None:

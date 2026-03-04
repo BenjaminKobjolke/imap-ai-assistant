@@ -8,6 +8,7 @@ import pytest
 
 from src.interaction.scheduler_prompts import (
     SchedulerAbortError,
+    SchedulerChoice,
     _is_interactive,
     scheduler_ask,
     scheduler_choose,
@@ -135,7 +136,7 @@ class TestSchedulerChoose:
         """Should delegate to SDK choose when interactive."""
         result = scheduler_choose("Pick env:", ["dev", "staging", "prod"], default=0)
         assert result == 2
-        mock_choose.assert_called_once_with("Pick env:", ["dev", "staging", "prod"], default=0)
+        mock_choose.assert_called_once_with("Pick env:", ["dev", "staging", "prod"], default=0, hidden_options=None)
 
     @patch("src.interaction.scheduler_prompts._is_interactive", return_value=True)
     @patch("src.interaction.scheduler_prompts.choose", return_value=None)
@@ -143,6 +144,61 @@ class TestSchedulerChoose:
         """Should raise SchedulerAbortError when SDK returns None."""
         with pytest.raises(SchedulerAbortError):
             scheduler_choose("Pick:", ["a", "b"], default=0)
+
+
+class TestSchedulerChooseHiddenOptions:
+    """Tests for hidden_options support in scheduler_choose."""
+
+    @patch("src.interaction.scheduler_prompts._is_interactive", return_value=True)
+    @patch("src.interaction.scheduler_prompts.choose", return_value=3)
+    def test_passes_hidden_options_to_sdk(self, mock_choose: MagicMock, mock_interactive: MagicMock) -> None:
+        """Should forward hidden_options to the SDK choose call."""
+        hidden = {"a": "Abort"}
+        scheduler_choose("Pick:", ["x", "y"], default=0, hidden_options=hidden)
+        mock_choose.assert_called_once_with("Pick:", ["x", "y"], default=0, hidden_options=hidden)
+
+    @patch("src.interaction.scheduler_prompts._is_interactive", return_value=False)
+    @patch("builtins.input", return_value="a")
+    @patch("builtins.print")
+    def test_console_hidden_shortcut_returns_offset_index(
+        self, mock_print: MagicMock, mock_input: MagicMock, mock_interactive: MagicMock,
+    ) -> None:
+        """Typing a hidden shortcut key should return len(options) + position."""
+        result = scheduler_choose("Pick:", ["x", "y"], default=0, hidden_options={"a": "Abort"})
+        assert result == 2  # len(["x", "y"]) + 0
+
+    @patch("src.interaction.scheduler_prompts._is_interactive", return_value=False)
+    @patch("builtins.input", return_value="")
+    @patch("builtins.print")
+    def test_console_shows_hidden_hint(
+        self, mock_print: MagicMock, mock_input: MagicMock, mock_interactive: MagicMock,
+    ) -> None:
+        """Hidden options should produce a hint line like (a=Abort)."""
+        scheduler_choose("Pick:", ["x", "y"], default=0, hidden_options={"a": "Abort"})
+        printed = [str(c) for c in mock_print.call_args_list]
+        assert any("a=Abort" in line for line in printed)
+
+
+class TestSchedulerChoiceAbort:
+    """Tests for SchedulerChoice abort flag."""
+
+    @patch("src.interaction.scheduler_prompts.scheduler_choose", return_value=2)
+    def test_abort_returns_abort_action(self, mock_choose: MagicMock) -> None:
+        """SchedulerChoice(abort=True) returns 'abort' when hidden option is selected."""
+        sc = SchedulerChoice("Action:", [("A", "a_key"), ("B", "b_key")], abort=True)
+        result = sc.choose()
+        assert result == "abort"
+        # Verify hidden_options was passed
+        mock_choose.assert_called_once_with(
+            "Action:", ["A", "B"], default=0, hidden_options={"a": "Abort"},
+        )
+
+    @patch("src.interaction.scheduler_prompts.scheduler_choose", return_value=0)
+    def test_normal_choice_still_works_with_abort(self, mock_choose: MagicMock) -> None:
+        """Normal selection should return the correct action key even with abort enabled."""
+        sc = SchedulerChoice("Action:", [("A", "a_key"), ("B", "b_key")], abort=True)
+        result = sc.choose()
+        assert result == "a_key"
 
 
 class TestSchedulerOutput:
