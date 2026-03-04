@@ -10,6 +10,7 @@ from email.mime.nonmultipart import MIMENonMultipart
 from email.mime.text import MIMEText
 
 from src.config.settings import ConfigManager
+from src.constants import CFG_EMAIL_ADDRESS, HEADER_INVITE_RSVP
 from src.email.imap_client import EnhancedImapClient
 from src.interaction.scheduler_prompts import send_output
 
@@ -90,7 +91,7 @@ class InviteRsvp:
         msg["From"] = user_email
         msg["To"] = invite.organizer_email
         msg["Subject"] = subject
-        msg["X-IMAP-Assistant-Invite-RSVP"] = "ACCEPTED"
+        msg[HEADER_INVITE_RSVP] = "ACCEPTED"
 
         html_part = MIMEText(body_html, "html")
         msg.attach(html_part)
@@ -115,7 +116,7 @@ class InviteRsvp:
             logger.warning("No organizer email found, cannot create RSVP draft")
             return False
 
-        user_email = account_config.get("email_address", "")
+        user_email = account_config.get(CFG_EMAIL_ADDRESS, "")
         drafts_folder = config.get_drafts_folder(account_config)
 
         try:
@@ -147,7 +148,7 @@ class InviteRsvp:
             logger.error("No SMTP configuration available for RSVP send")
             return False
 
-        user_email = account_config.get("email_address", "")
+        user_email = account_config.get(CFG_EMAIL_ADDRESS, "")
 
         try:
             msg = InviteRsvp._build_rsvp_message(invite, user_email)

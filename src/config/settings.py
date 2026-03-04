@@ -5,6 +5,20 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from src.constants import (
+    CFG_ADDITIONAL_SUBJECT_TAG,
+    CFG_EMAIL_ADDRESS,
+    CFG_TARGET_FOLDER,
+    DEFAULT_MODEL,
+    DEFAULT_TEMPERATURE,
+    DEFAULT_TODO_FOLDER,
+    DEFAULT_TODO_TAG,
+    FOLDER_DRAFTS,
+    FOLDER_INBOX,
+    FOLDER_SENT,
+    FOLDER_TRASH,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -55,7 +69,7 @@ class ConfigManager:
     @property
     def openai_model(self) -> str:
         """Get OpenAI model to use."""
-        return self._config.get("openai", {}).get("model", "gpt-4o")
+        return self._config.get("openai", {}).get("model", DEFAULT_MODEL)
 
     @property
     def openai_max_completion_tokens(self) -> int:
@@ -66,7 +80,7 @@ class ConfigManager:
     @property
     def openai_temperature(self) -> float:
         """Get OpenAI temperature."""
-        return self._config.get("openai", {}).get("temperature", 0.3)
+        return self._config.get("openai", {}).get("temperature", DEFAULT_TEMPERATURE)
 
     @property
     def rtm_email(self) -> str | None:
@@ -76,12 +90,12 @@ class ConfigManager:
     @property
     def target_folder(self) -> str:
         """Get target folder for processed emails (default for my own tasks)."""
-        return self._config.get("processing", {}).get("my_own_tasks", {}).get("target_folder", "@BKToDo")
+        return self._config.get("processing", {}).get("my_own_tasks", {}).get(CFG_TARGET_FOLDER, DEFAULT_TODO_FOLDER)
 
     @property
     def subject_tag(self) -> str:
         """Get additional subject tag (default for my own tasks)."""
-        return self._config.get("processing", {}).get("my_own_tasks", {}).get("additional_subject_tag", "#BKToDo")
+        return self._config.get("processing", {}).get("my_own_tasks", {}).get(CFG_ADDITIONAL_SUBJECT_TAG, DEFAULT_TODO_TAG)
 
     def get_processing_rules(self, assignee: str = "self") -> dict[str, str]:
         """Get processing rules for a specific assignee."""
@@ -95,10 +109,10 @@ class ConfigManager:
             rules = others.get(assignee.lower(), processing.get("my_own_tasks", {}))
 
         return {
-            "target_folder": rules.get("target_folder", "@BKToDo"),
-            "additional_subject_tag": rules.get("additional_subject_tag", "#BKToDo"),
-            "email_address": rules.get("email_address", ""),
-            "bcc": rules.get("bcc", "")
+            CFG_TARGET_FOLDER: rules.get(CFG_TARGET_FOLDER, DEFAULT_TODO_FOLDER),
+            CFG_ADDITIONAL_SUBJECT_TAG: rules.get(CFG_ADDITIONAL_SUBJECT_TAG, DEFAULT_TODO_TAG),
+            CFG_EMAIL_ADDRESS: rules.get(CFG_EMAIL_ADDRESS, ""),
+            "bcc": rules.get("bcc", ""),
         }
 
     def get_other_people_names(self) -> list[str]:
@@ -137,9 +151,9 @@ class ConfigManager:
             account_config = self.get_first_account()
 
         if account_config:
-            return account_config.get("drafts_folder", "Drafts")
+            return account_config.get("drafts_folder", FOLDER_DRAFTS)
 
-        return "Drafts"
+        return FOLDER_DRAFTS
 
     def get_sent_folder(self, account_config: dict | None = None) -> str:
         """Get the sent folder name from account configuration."""
@@ -147,9 +161,9 @@ class ConfigManager:
             account_config = self.get_first_account()
 
         if account_config:
-            return account_config.get("sent_folder", "Sent")
+            return account_config.get("sent_folder", FOLDER_SENT)
 
-        return "Sent"
+        return FOLDER_SENT
 
     def get_sent_search_limit(self) -> int:
         """Get the limit for searching sent emails (for performance)."""
@@ -248,7 +262,7 @@ class ConfigManager:
     @property
     def meetings_invite_scan_folder(self) -> str:
         """Get the IMAP folder to scan for meeting invites."""
-        return self._config.get("meetings", {}).get("invite_scan_folder", "INBOX")
+        return self._config.get("meetings", {}).get("invite_scan_folder", FOLDER_INBOX)
 
     @property
     def meetings_rsvp_send_directly(self) -> bool:
@@ -421,7 +435,7 @@ class ConfigManager:
     @property
     def trash_folder(self) -> str:
         """Get the IMAP trash folder path."""
-        return self._config.get("trash_folder", "Trash")
+        return self._config.get("trash_folder", FOLDER_TRASH)
 
     @property
     def search_results_folder(self) -> str:
@@ -447,7 +461,7 @@ class ConfigManager:
     @property
     def search_live_folders(self) -> list[str]:
         """Folder names that are always searched live via IMAP, never from cache."""
-        return self._config.get("search", {}).get("live_folders", ["INBOX"])
+        return self._config.get("search", {}).get("live_folders", [FOLDER_INBOX])
 
     def get_account_smtp_config(self, account_config: dict | None = None) -> dict | None:
         """Get SMTP configuration from a specific account entry.

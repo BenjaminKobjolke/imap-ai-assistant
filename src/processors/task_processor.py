@@ -6,6 +6,15 @@ from datetime import datetime
 
 from src.ai.openai_client import OpenAIClient
 from src.config.settings import ConfigManager
+from src.constants import (
+    CFG_ADDITIONAL_SUBJECT_TAG,
+    CFG_EMAIL_ADDRESS,
+    CFG_TARGET_FOLDER,
+    HEADER_CREATED,
+    HEADER_ORIGINAL_SENDER,
+    HEADER_TASK_ID,
+    MARKER_DRY_RUN,
+)
 from src.email.imap_client import EnhancedImapClient
 from src.email.smtp_client import SmtpClient
 from src.interaction.scheduler_prompts import scheduler_choose, scheduler_confirm, send_output
@@ -72,8 +81,8 @@ class TaskProcessor:
 
             # Get processing rules based on assignee
             processing_rules = self.config.get_processing_rules(assignee)
-            target_folder = processing_rules["target_folder"]
-            subject_tag = processing_rules["additional_subject_tag"]
+            target_folder = processing_rules[CFG_TARGET_FOLDER]
+            subject_tag = processing_rules[CFG_ADDITIONAL_SUBJECT_TAG]
 
             # Append extra tags from sender/keyword rules
             extra_tags = RtmTodoCreator.resolve_extra_tags(self.config, email_message.from_address, subject)
@@ -82,27 +91,27 @@ class TaskProcessor:
 
             # Let user edit tags
             subject_tag = RtmTodoCreator.edit_tags(subject_tag)
-            assignee_email = processing_rules.get("email_address", "")
+            assignee_email = processing_rules.get(CFG_EMAIL_ADDRESS, "")
             bcc_email = processing_rules.get("bcc", "")
 
             # Prepare task tracking headers
             task_tracking_headers = {
-                "X-IMAP-Assistant-Task-ID": task_id,
-                "X-IMAP-Assistant-Original-Sender": email_message.from_address,
-                "X-IMAP-Assistant-Created": task_created
+                HEADER_TASK_ID: task_id,
+                HEADER_ORIGINAL_SENDER: email_message.from_address,
+                HEADER_CREATED: task_created,
             }
 
             if self.dry_run:
                 final_subject = f"{todo_text} {subject_tag}"
-                logger.info(f"[DRY RUN] Final subject: {final_subject}")
-                logger.info(f"[DRY RUN] Would mark message {message_id} as read")
+                logger.info(f"{MARKER_DRY_RUN} Final subject: {final_subject}")
+                logger.info(f"{MARKER_DRY_RUN} Would mark message {message_id} as read")
                 done_folder = self.config.processor_done_folder
                 if done_folder:
-                    logger.info(f"[DRY RUN] Would move message to \"{done_folder}\" on processor account")
+                    logger.info(f"{MARKER_DRY_RUN} Would move message to \"{done_folder}\" on processor account")
                 sent_folder = self.config.processor_sent_folder
                 if sent_folder:
-                    logger.info(f"[DRY RUN] Would append sent message to \"{sent_folder}\" on processor account")
-                logger.info(f"[DRY RUN] Would handle original email (move to {target_folder}, "
+                    logger.info(f"{MARKER_DRY_RUN} Would append sent message to \"{sent_folder}\" on processor account")
+                logger.info(f"{MARKER_DRY_RUN} Would handle original email (move to {target_folder}, "
                             f"forward to {assignee_email or 'N/A'})")
                 return True
 
@@ -261,7 +270,7 @@ class TaskProcessor:
                     bcc_addresses=bcc_list,
                     additional_message=(
                         "This task has been assigned to you.\n\nTask ID: "
-                        f"{task_tracking_headers.get('X-IMAP-Assistant-Task-ID', 'unknown')}"
+                        f"{task_tracking_headers.get(HEADER_TASK_ID, 'unknown')}"
                         "\nForwarded by IMAP AI Assistant"
                     ),
                     custom_headers=task_tracking_headers
@@ -283,7 +292,7 @@ class TaskProcessor:
                         bcc_addresses=bcc_list,
                         additional_message=(
                             "This task has been assigned to you.\n\nTask ID: "
-                            f"{task_tracking_headers.get('X-IMAP-Assistant-Task-ID', 'unknown')}"
+                            f"{task_tracking_headers.get(HEADER_TASK_ID, 'unknown')}"
                             "\nForwarded by IMAP AI Assistant"
                         ),
                     )

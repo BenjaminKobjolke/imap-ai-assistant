@@ -10,6 +10,18 @@ from typing import Any
 from openai import OpenAI
 
 from src.ai.prompt_loader import PromptLoader
+from src.constants import (
+    DEFAULT_MAX_TOKENS,
+    DEFAULT_MODEL,
+    DEFAULT_TEMPERATURE,
+    KEY_CONFIDENCE,
+    KEY_REASON,
+    KEY_RESPONSE,
+    KEY_STATUS,
+    KEY_SUBJECT,
+    PREFIX_REPLY,
+    STATUS_UNCLEAR,
+)
 from src.logging.app_logger import ApplicationLogger
 
 logger = logging.getLogger(__name__)
@@ -34,8 +46,8 @@ class OpenAIClient:
     """OpenAI client for processing emails into RTM todo format."""
 
     def __init__(
-        self, api_key: str, model: str = "gpt-4o", max_completion_tokens: int = 100,
-        temperature: float = 0.3, other_people: list[str] | None = None,
+        self, api_key: str, model: str = DEFAULT_MODEL, max_completion_tokens: int = DEFAULT_MAX_TOKENS,
+        temperature: float = DEFAULT_TEMPERATURE, other_people: list[str] | None = None,
         app_logger: ApplicationLogger | None = None,
     ):
         self.client = OpenAI(api_key=api_key)
@@ -335,9 +347,9 @@ class OpenAIClient:
                     return json_response
                 except json.JSONDecodeError as e:
                     logger.error(f"Failed to parse task completion response: {e}")
-                    return {"status": "unclear", "confidence": 1, "reason": "Failed to parse response"}
+                    return {KEY_STATUS: STATUS_UNCLEAR, KEY_CONFIDENCE: 1, KEY_REASON: "Failed to parse response"}
             else:
-                return {"status": "unclear", "confidence": 1, "reason": "No response from OpenAI"}
+                return {KEY_STATUS: STATUS_UNCLEAR, KEY_CONFIDENCE: 1, KEY_REASON: "No response from OpenAI"}
 
         except Exception as e:
             logger.error(f"Error checking task completion: {e}")
@@ -346,7 +358,7 @@ class OpenAIClient:
                 if not request_id:
                     request_id = str(time.time())
                 self.app_logger.log_ai_error(request_id, "task_completion", e, {"original_task": original_task})
-            return {"status": "unclear", "confidence": 1, "reason": f"Error: {e!s}"}
+            return {KEY_STATUS: STATUS_UNCLEAR, KEY_CONFIDENCE: 1, KEY_REASON: f"Error: {e!s}"}
 
     def generate_client_response(self, original_subject: str, original_content: str,
                                  assigned_task: str, assignee_response: str,
@@ -432,9 +444,9 @@ class OpenAIClient:
                     return json_response
                 except json.JSONDecodeError as e:
                     logger.error(f"Failed to parse client response: {e}")
-                    return {"response": "Task completed.", "subject": "Re: " + original_subject}
+                    return {KEY_RESPONSE: "Task completed.", KEY_SUBJECT: PREFIX_REPLY + original_subject}
             else:
-                return {"response": "Task completed.", "subject": "Re: " + original_subject}
+                return {KEY_RESPONSE: "Task completed.", KEY_SUBJECT: PREFIX_REPLY + original_subject}
 
         except Exception as e:
             logger.error(f"Error generating client response: {e}")
@@ -443,7 +455,7 @@ class OpenAIClient:
                 if not request_id:
                     request_id = str(time.time())
                 self.app_logger.log_ai_error(request_id, "client_response", e, {"original_subject": original_subject})
-            return {"response": "Task completed.", "subject": "Re: " + original_subject}
+            return {KEY_RESPONSE: "Task completed.", KEY_SUBJECT: PREFIX_REPLY + original_subject}
 
     def test_connection(self) -> bool:
         """Test OpenAI API connection."""

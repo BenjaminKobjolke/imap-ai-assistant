@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import contextlib
+import logging
 import re
 import subprocess
 import webbrowser
 from datetime import date
+
+from src.constants import MIME_TEXT_PLAIN
 
 
 def safe_print(text: str) -> None:
@@ -47,7 +50,7 @@ def extract_meeting_links(email_message: object, ics_text: str | None) -> list[d
     # 2. Email plain-text body
     body = ""
     with contextlib.suppress(Exception):
-        body = email_message.get_body("text/plain") or ""
+        body = email_message.get_body(MIME_TEXT_PLAIN) or ""
 
     url_patterns = [
         ("Teams", r'https://teams\.microsoft\.com/[^\s<>"]+'),
@@ -142,12 +145,16 @@ def _pick_link_index(links: list[dict[str, str]]) -> int | None:
         return None
 
 
+logger = logging.getLogger(__name__)
+
+
 def _copy_to_clipboard(url: str) -> None:
     """Copy a URL to the system clipboard."""
     try:
         subprocess.run(["clip"], input=url, text=True, check=False)
         safe_print("  Link copied to clipboard.")
     except Exception:
+        logger.debug("Failed to copy to clipboard", exc_info=True)
         safe_print("  Failed to copy to clipboard.")
 
 
@@ -157,4 +164,5 @@ def _open_in_browser(url: str) -> None:
         webbrowser.open(url)
         safe_print("  Link opened in browser.")
     except Exception:
+        logger.debug("Failed to open browser", exc_info=True)
         safe_print("  Failed to open browser.")

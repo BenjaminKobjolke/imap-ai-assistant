@@ -8,6 +8,7 @@ from email.utils import parseaddr
 
 from src.ai.openai_client import OpenAIClient
 from src.config.settings import ConfigManager
+from src.constants import CFG_TARGET_FOLDER, FOLDER_INBOX, MIME_TEXT_HTML, MIME_TEXT_PLAIN
 from src.email.imap_client import EnhancedImapClient
 from src.email.smtp_client import SmtpClient
 from src.interaction.scheduler_prompts import SchedulerChoice, scheduler_ask, send_output
@@ -53,7 +54,7 @@ class InboxZero:
         if unread_only:
             messages = client.client.get_unread_messages()
         else:
-            messages = client.client.get_all_messages(folder="INBOX", include_attachments=False)
+            messages = client.client.get_all_messages(folder=FOLDER_INBOX, include_attachments=False)
 
         if not messages:
             send_output("INBOX is empty — nothing to do.")
@@ -203,7 +204,7 @@ class InboxZero:
             return True
 
         try:
-            client.client.client.select_folder("INBOX")
+            client.client.client.select_folder(FOLDER_INBOX)
             client.client.mark_as_read(str(msg_id))
             success = client.client.move_to_folder(msg_id, target)
             if success:
@@ -240,13 +241,13 @@ class InboxZero:
             return False
 
         # Move to the "my own tasks" target folder
-        target_folder = config.get_processing_rules("self")["target_folder"]
+        target_folder = config.get_processing_rules("self")[CFG_TARGET_FOLDER]
         if dry_run:
             send_output(f"  DRY RUN: would move to '{target_folder}'")
             return True
 
         try:
-            client.client.client.select_folder("INBOX")
+            client.client.client.select_folder(FOLDER_INBOX)
             client.client.mark_as_read(str(msg_id))
             client.client.move_to_folder(msg_id, target_folder)
             send_output(f"  Moved to '{target_folder}'")
@@ -271,7 +272,7 @@ class InboxZero:
             return True
 
         try:
-            client.client.client.select_folder("INBOX")
+            client.client.client.select_folder(FOLDER_INBOX)
             client.client.mark_as_read(str(msg_id))
             success = client.client.move_to_folder(msg_id, trash)
             if success:
@@ -360,11 +361,11 @@ class InboxZero:
         """Extract a plain-text excerpt from the email body."""
         body = None
         if hasattr(email_msg, "get_body"):
-            body = email_msg.get_body("text/plain")
+            body = email_msg.get_body(MIME_TEXT_PLAIN)
             if not body:
                 import re
 
-                html = email_msg.get_body("text/html")
+                html = email_msg.get_body(MIME_TEXT_HTML)
                 if html:
                     body = re.sub(r"<[^>]+>", "", html).strip()
         if not body:

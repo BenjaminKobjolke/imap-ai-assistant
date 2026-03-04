@@ -9,6 +9,7 @@ from email.utils import parseaddr
 from imap_client_lib import EmailMessage
 
 from src.config.settings import ConfigManager
+from src.constants import MIME_TEXT_HTML, MIME_TEXT_PLAIN
 from src.email.imap_client import EnhancedImapClient
 from src.interaction.scheduler_prompts import send_output
 from src.search.search_cache import SearchCache, parse_date_to_iso
@@ -135,9 +136,9 @@ class CacheBuilder:
 def _extract_body_preview(email_msg: EmailMessage) -> str:
     """Extract first 2000 characters of the email body."""
     try:
-        body = email_msg.get_body("text/plain")
+        body = email_msg.get_body(MIME_TEXT_PLAIN)
         if not body:
-            html = email_msg.get_body("text/html")
+            html = email_msg.get_body(MIME_TEXT_HTML)
             if html:
                 body = re.sub(r"<[^>]+>", "", html).strip()
         return (body or "")[:2000]

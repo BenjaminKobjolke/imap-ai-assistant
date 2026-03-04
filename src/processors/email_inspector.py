@@ -1,19 +1,31 @@
+from __future__ import annotations
+
 import logging
-import os
 import re
 from datetime import datetime
+from pathlib import Path
+
+from src.constants import (
+    HEADER_CREATED,
+    HEADER_DRAFT_CREATED,
+    HEADER_ORIGINAL_SENDER,
+    HEADER_TASK_ID,
+    MIME_TEXT_CALENDAR,
+    MIME_TEXT_HTML,
+    MIME_TEXT_PLAIN,
+)
 
 logger = logging.getLogger(__name__)
 
 CUSTOM_HEADERS = [
-    "X-IMAP-Assistant-Task-ID",
-    "X-IMAP-Assistant-Original-Sender",
-    "X-IMAP-Assistant-Created",
-    "X-IMAP-Assistant-Draft-Created",
+    HEADER_TASK_ID,
+    HEADER_ORIGINAL_SENDER,
+    HEADER_CREATED,
+    HEADER_DRAFT_CREATED,
 ]
 
 
-def _safe_print(text):
+def _safe_print(text: str) -> None:
     """Print text safely on Windows console by replacing unencodable chars."""
     try:
         print(text)
@@ -25,7 +37,13 @@ class EmailInspector:
     """Utility class for inspecting and debugging emails from IMAP folders."""
 
     @staticmethod
-    def print_summary(index, total, email_message, imap_client, saved_path=None):
+    def print_summary(
+        index: int,
+        total: int,
+        email_message: object,
+        imap_client: object,
+        saved_path: str | None = None,
+    ) -> None:
         """Print a formatted console summary for a single email."""
         subject = email_message.subject or "(no subject)"
         from_addr = email_message.from_address or "(unknown)"
@@ -37,12 +55,12 @@ class EmailInspector:
         # Extract custom header
         task_id = "N/A"
         if hasattr(email_message, "raw_message") and email_message.raw_message:
-            task_id = email_message.raw_message.get("X-IMAP-Assistant-Task-ID", "N/A")
+            task_id = email_message.raw_message.get(HEADER_TASK_ID, "N/A")
 
         # Attachment info
         attachments = getattr(email_message, "attachments", []) or []
         attachment_names = [a.filename for a in attachments if a.filename]
-        has_calendar = bool(email_message.get_body("text/calendar")) if hasattr(email_message, "get_body") else False
+        has_calendar = bool(email_message.get_body(MIME_TEXT_CALENDAR)) if hasattr(email_message, "get_body") else False
         if has_calendar and "calendar.ics" not in attachment_names:
             attachment_names.append("calendar.ics (MIME part)")
 
@@ -63,7 +81,11 @@ class EmailInspector:
         _safe_print(f"---{'─' * 20}---")
 
     @staticmethod
-    def save_to_file(email_message, imap_client, output_dir="debug"):
+    def save_to_file(
+        email_message: object,
+        imap_client: object,
+        output_dir: str = "debug",
+    ) -> str | None:
         """Save full email details and attachments to a subdirectory.
 
         Returns the path of the saved directory, or None on failure.
@@ -73,8 +95,8 @@ class EmailInspector:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             safe_subject = re.sub(r'[^\w\s-]', '', subject)[:50].strip().replace(' ', '_')
             dir_name = f"{timestamp}_{safe_subject}"
-            dir_path = os.path.join(output_dir, dir_name)
-            os.makedirs(dir_path, exist_ok=True)
+            dir_path = Path(output_dir) / dir_name
+            dir_path.mkdir(parents=True, exist_ok=True)
 
             from_addr = email_message.from_address or "(unknown)"
 
@@ -82,17 +104,17 @@ class EmailInspector:
             plain_body = ""
             has_html = False
             try:
-                plain_body = email_message.get_body("text/plain") or ""
-                has_html = bool(email_message.get_body("text/html"))
+                plain_body = email_message.get_body(MIME_TEXT_PLAIN) or ""
+                has_html = bool(email_message.get_body(MIME_TEXT_HTML))
             except Exception:
-                pass
+                logger.warning("Failed to extract email body content")
 
             # Extract text/calendar MIME part
             calendar_body = None
             try:
-                calendar_body = email_message.get_body("text/calendar")
+                calendar_body = email_message.get_body(MIME_TEXT_CALENDAR)
             except Exception:
-                pass
+                logger.warning("Failed to extract calendar MIME part")
 
             # Extract custom headers
             custom_headers = {}
@@ -116,25 +138,25 @@ class EmailInspector:
             for attachment in attachments:
                 if attachment.filename and attachment.data:
                     safe_att_name = re.sub(r'[^\w.\s-]', '_', attachment.filename)[:100]
-                    att_path = os.path.join(dir_path, safe_att_name)
+                    att_path = dir_path / safe_att_name
                     with open(att_path, "wb") as af:
                         af.write(attachment.data)
-                    saved_attachments.append((attachment.filename, attachment.content_type, att_path))
+                    saved_attachments.append((attachment.filename, attachment.content_type, str(att_path)))
                     logger.debug(f"Saved attachment: {att_path}")
 
             # Save text/calendar MIME part as calendar.ics if not already in attachments
             calendar_in_attachments = any(
-                a.content_type == "text/calendar" for a in attachments
+                a.content_type == MIME_TEXT_CALENDAR for a in attachments
             )
             if calendar_body and not calendar_in_attachments:
-                ics_path = os.path.join(dir_path, "calendar.ics")
+                ics_path = dir_path / "calendar.ics"
                 with open(ics_path, "w", encoding="utf-8") as cf:
                     cf.write(calendar_body)
-                saved_attachments.append(("calendar.ics", "text/calendar (MIME part)", ics_path))
+                saved_attachments.append(("calendar.ics", "text/calendar (MIME part)", str(ics_path)))
                 logger.debug(f"Saved calendar MIME part: {ics_path}")
 
             # Write email summary
-            summary_path = os.path.join(dir_path, "email.txt")
+            summary_path = dir_path / "email.txt"
             with open(summary_path, "w", encoding="utf-8") as f:
                 f.write(f"Subject: {subject}\n")
                 f.write(f"From: {from_addr}\n")
@@ -149,7 +171,7 @@ class EmailInspector:
 
                 if saved_attachments:
                     f.write("=== Attachments ===\n")
-                    for att_name, att_type, att_path in saved_attachments:
+                    for att_name, att_type, _att_saved_path in saved_attachments:
                         f.write(f"  {att_name} ({att_type})\n")
                     f.write("\n")
 
@@ -165,7 +187,7 @@ class EmailInspector:
                     f.write("\n")
 
             logger.info(f"Saved email inspection to {dir_path}")
-            return dir_path
+            return str(dir_path)
 
         except Exception as e:
             logger.error(f"Error saving email inspection file: {e}")

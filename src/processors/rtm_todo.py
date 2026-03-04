@@ -6,6 +6,7 @@ import logging
 
 from src.ai.openai_client import OpenAIClient, TodoResult
 from src.config.settings import ConfigManager
+from src.constants import CFG_ADDITIONAL_SUBJECT_TAG
 from src.email.smtp_client import SmtpClient
 from src.interaction.scheduler_prompts import scheduler_ask, scheduler_choose, scheduler_confirm, send_output
 
@@ -134,7 +135,7 @@ class RtmTodoCreator:
         result = RtmTodoCreator.edit_todo(result)
 
         rules = config.get_processing_rules("self")
-        subject_tag = rules["additional_subject_tag"]
+        subject_tag = rules[CFG_ADDITIONAL_SUBJECT_TAG]
 
         extra = RtmTodoCreator.resolve_extra_tags(config, from_address, subject)
         if extra:

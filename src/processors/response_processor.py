@@ -1,9 +1,27 @@
+from __future__ import annotations
+
 import logging
 import re
-from typing import Dict, Optional
-from src.config.settings import ConfigManager
-from src.email.imap_client import EnhancedImapClient
+
 from src.ai.openai_client import OpenAIClient
+from src.config.settings import ConfigManager
+from src.constants import (
+    CFG_EMAIL_ADDRESS,
+    CFG_TARGET_FOLDER,
+    HEADER_TASK_ID,
+    KEY_CONFIDENCE,
+    KEY_EMAIL_MESSAGE,
+    KEY_MESSAGE_ID,
+    KEY_REASON,
+    KEY_STATUS,
+    KEY_TASK_BODY,
+    KEY_TASK_ID,
+    KEY_TASK_SUBJECT,
+    MARKER_DRY_RUN,
+    STATUS_COMPLETED,
+    STATUS_UNCLEAR,
+)
+from src.email.imap_client import EnhancedImapClient
 from src.interaction.scheduler_prompts import scheduler_confirm, send_output
 from src.processors.client_response_generator import ClientResponseGenerator
 from src.processors.relationship_analyzer import RelationshipAnalyzer
@@ -63,7 +81,7 @@ class ResponseProcessor:
 
         assignee_name = None
         for name, config in assignee_configs.items():
-            if config.get("email_address", "").lower() == sender_email.lower():
+            if config.get(CFG_EMAIL_ADDRESS, "").lower() == sender_email.lower():
                 assignee_name = name
                 break
 
@@ -83,7 +101,7 @@ class ResponseProcessor:
             logger.warning(f"Could not find original task for response from {assignee_name}")
             # Still mark email as read even if we can't find the original task
             if self.dry_run:
-                logger.info(f"[DRY RUN] Would mark unmatched response email {message_id} as read")
+                logger.info(f"{MARKER_DRY_RUN} Would mark unmatched response email {message_id} as read")
             else:
                 try:
                     main_imap_client.mark_message_as_read(message_id)
@@ -96,23 +114,23 @@ class ResponseProcessor:
         task_status = self._check_task_completion(original_task, body_excerpt)
 
         # Let user confirm the AI assessment when running interactively
-        status = task_status.get("status", "unclear")
-        confidence = task_status.get("confidence", 0)
-        reason = task_status.get("reason", "")
+        status = task_status.get(KEY_STATUS, STATUS_UNCLEAR)
+        confidence = task_status.get(KEY_CONFIDENCE, 0)
+        reason = task_status.get(KEY_REASON, "")
         if not scheduler_confirm(
             f"AI assessment — status: {status}, confidence: {confidence}, reason: {reason}. Accept?",
             default=True,
         ):
             logger.info("User rejected AI assessment — overriding to 'unclear'")
-            task_status = {"status": "unclear", "confidence": 0, "reason": "User override"}
+            task_status = {KEY_STATUS: STATUS_UNCLEAR, KEY_CONFIDENCE: 0, KEY_REASON: "User override"}
 
-        send_output(f"Task status: {task_status.get('status', 'unclear')}")
+        send_output(f"Task status: {task_status.get(KEY_STATUS, STATUS_UNCLEAR)}")
 
-        if task_status.get("status") == "completed":
+        if task_status.get(KEY_STATUS) == STATUS_COMPLETED:
             logger.info(f"Task completed by {assignee_name}: {original_task}")
 
             if self.dry_run:
-                logger.info("[DRY RUN] Would generate client response for completed task")
+                logger.info(f"{MARKER_DRY_RUN} Would generate client response for completed task")
             elif scheduler_confirm("Generate client response for completed task?", default=True):
                 # Generate client response
                 self._generate_client_response(original_task, body_excerpt, main_imap_client)
@@ -121,13 +139,13 @@ class ResponseProcessor:
 
             logger.info("Task completed - marking response email as read")
         else:
-            status = task_status.get('status')
-            reason = task_status.get('reason')
+            status = task_status.get(KEY_STATUS)
+            reason = task_status.get(KEY_REASON)
             logger.info(f"Task not completed by {assignee_name}. Status: {status} - {reason}")
 
         # Always mark the response email as read after processing (regardless of completion status)
         if self.dry_run:
-            logger.info(f"[DRY RUN] Would mark response email {message_id} as read")
+            logger.info(f"{MARKER_DRY_RUN} Would mark response email {message_id} as read")
         else:
             try:
                 main_imap_client.mark_message_as_read(message_id)
@@ -135,7 +153,7 @@ class ResponseProcessor:
             except Exception as e:
                 logger.warning(f"Failed to mark response email {message_id} as read: {e}")
 
-    def _find_original_task(self, assignee_name: str, response_email_message) -> Optional[Dict]:
+    def _find_original_task(self, assignee_name: str, response_email_message: object) -> dict | None:
         """Find the original task by extracting task ID from response email headers."""
         try:
             logger.info(f"Searching for original task for assignee: {assignee_name}")
@@ -143,11 +161,11 @@ class ResponseProcessor:
             # Extract task ID from response email headers
             task_id = None
             if hasattr(response_email_message, 'raw_message'):
-                task_id = response_email_message.raw_message.get('X-IMAP-Assistant-Task-ID')
+                task_id = response_email_message.raw_message.get(HEADER_TASK_ID)
                 logger.debug(f"Extracted task ID from raw_message: {task_id}")
 
             if not task_id:
-                logger.warning("Could not find X-IMAP-Assistant-Task-ID header in response email")
+                logger.warning(f"Could not find {HEADER_TASK_ID} header in response email")
                 logger.info("Trying to extract task ID from email body as fallback...")
 
                 # Fallback: Extract task ID from email body
@@ -166,7 +184,7 @@ class ResponseProcessor:
             logger.error(f"Error finding original task: {e}")
             return None
 
-    def _extract_task_id_from_body(self, response_email_message) -> Optional[str]:
+    def _extract_task_id_from_body(self, response_email_message: object) -> str | None:
         """Extract task ID from email body as fallback."""
         try:
             # Try multiple methods to get email content
@@ -227,12 +245,12 @@ class ResponseProcessor:
             logger.error(f"Error extracting task ID from body: {e}")
             return None
 
-    def _find_task_by_id(self, assignee_name: str, task_id: str) -> Optional[Dict]:
+    def _find_task_by_id(self, assignee_name: str, task_id: str) -> dict | None:
         """Find task in target folder by task ID."""
         try:
             # Get processing rules for assignee to find target folder
             processing_rules = self.config.get_processing_rules(assignee_name)
-            target_folder = processing_rules.get("target_folder")
+            target_folder = processing_rules.get(CFG_TARGET_FOLDER)
 
             logger.info(f"Target folder for {assignee_name}: {target_folder}")
 
@@ -260,7 +278,7 @@ class ResponseProcessor:
                 found_task_ids = []
                 for msg_id, email_msg in all_messages:
                     if hasattr(email_msg, 'raw_message'):
-                        msg_task_id = email_msg.raw_message.get('X-IMAP-Assistant-Task-ID')
+                        msg_task_id = email_msg.raw_message.get(HEADER_TASK_ID)
 
                         if msg_task_id:
                             found_task_ids.append(msg_task_id)
@@ -273,11 +291,11 @@ class ResponseProcessor:
                             logger.info(f"✅ Found matching original task by task ID: {msg_subject_full}")
 
                             return {
-                                "task_subject": msg_subject_full,
-                                "task_body": msg_body,
-                                "message_id": msg_id,
-                                "email_message": email_msg,
-                                "task_id": task_id
+                                KEY_TASK_SUBJECT: msg_subject_full,
+                                KEY_TASK_BODY: msg_body,
+                                KEY_MESSAGE_ID: msg_id,
+                                KEY_EMAIL_MESSAGE: email_msg,
+                                KEY_TASK_ID: task_id,
                             }
                     else:
                         logger.debug(f"Email message {msg_id} has no raw_message attribute")
@@ -297,23 +315,23 @@ class ResponseProcessor:
             logger.error(f"Error finding task by ID: {e}")
             return None
 
-    def _check_task_completion(self, original_task: Dict, assignee_response: str) -> dict:
+    def _check_task_completion(self, original_task: dict, assignee_response: str) -> dict:
         """Use OpenAI to check if task is completed."""
         if not self.openai_client:
             logger.error("OpenAI client not initialized")
-            return {"status": "unclear", "confidence": 1, "reason": "OpenAI client not available"}
+            return {KEY_STATUS: STATUS_UNCLEAR, KEY_CONFIDENCE: 1, KEY_REASON: "OpenAI client not available"}
 
         # Use the task subject as the original task description
-        task_description = original_task.get("task_subject", "")
+        task_description = original_task.get(KEY_TASK_SUBJECT, "")
 
         return self.openai_client.check_task_completion(task_description, assignee_response)
 
-    def _generate_client_response(self, original_task: Dict, assignee_response: str,
+    def _generate_client_response(self, original_task: dict, assignee_response: str,
                                  main_imap_client: EnhancedImapClient) -> None:
         """Generate and send response to original client."""
         try:
             # Get the original sender (client who made the request)
-            email_message = original_task.get("email_message")
+            email_message = original_task.get(KEY_EMAIL_MESSAGE)
             if not email_message:
                 logger.error("No original email message found")
                 return
@@ -341,7 +359,7 @@ class ResponseProcessor:
         except Exception as e:
             logger.error(f"Error generating client response: {e}")
 
-    def _extract_sender_email(self, from_address: str) -> Optional[str]:
+    def _extract_sender_email(self, from_address: str) -> str | None:
         """Extract email address from sender field."""
         try:
             from email.utils import parseaddr

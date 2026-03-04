@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import argparse
 import logging
 import sys
@@ -24,7 +26,7 @@ logging.getLogger('google.auth').setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 
-def main():
+def main() -> None:
     """Main application entry point."""
     parser = argparse.ArgumentParser(description='IMAP AI Assistant - AI-powered email to todo conversion')
     parser.add_argument('--test', action='store_true', help='Test all connections and configurations')

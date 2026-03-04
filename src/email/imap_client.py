@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import List, Tuple, Optional
-from imap_client_lib import ImapClient as BaseImapClient, Account
 from email.utils import parseaddr
+
+from imap_client_lib import Account
+from imap_client_lib import ImapClient as BaseImapClient
+
+from src.constants import MIME_TEXT_HTML, MIME_TEXT_PLAIN
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +50,7 @@ class EnhancedImapClient:
         except Exception as e:
             logger.error(f"Error disconnecting from IMAP server: {e}")
 
-    def get_filtered_unread_messages(self, allowed_senders: List[str]) -> List[Tuple[str, object]]:
+    def get_filtered_unread_messages(self, allowed_senders: list[str]) -> list[tuple[str, object]]:
         """Get unread messages filtered by allowed senders."""
         if not self.connected:
             logger.error("Not connected to IMAP server")
@@ -74,7 +77,7 @@ class EnhancedImapClient:
             logger.error(f"Error getting filtered unread messages: {e}")
             return []
 
-    def _extract_email_address(self, from_field: str) -> Optional[str]:
+    def _extract_email_address(self, from_field: str) -> str | None:
         """Extract email address from 'From' field."""
         try:
             # Parse "Name <email@domain.com>" format
@@ -84,7 +87,7 @@ class EnhancedImapClient:
             logger.debug(f"Error parsing email address from '{from_field}': {e}")
             return None
 
-    def extract_email_content(self, email_message) -> Tuple[str, str, str]:
+    def extract_email_content(self, email_message: object) -> tuple[str, str, str]:
         """Extract subject, first line, and body excerpt from email message."""
         subject = email_message.subject or ""
         first_line = ""
@@ -92,11 +95,11 @@ class EnhancedImapClient:
 
         try:
             # Use the new get_body method - much simpler and more reliable!
-            body_text = email_message.get_body("text/plain")
+            body_text = email_message.get_body(MIME_TEXT_PLAIN)
 
             # If no plain text, try HTML and strip tags
             if not body_text:
-                html_body = email_message.get_body("text/html")
+                html_body = email_message.get_body(MIME_TEXT_HTML)
                 if html_body:
                     body_text = re.sub(r'<[^>]+>', '', html_body).strip()
 

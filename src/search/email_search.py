@@ -12,6 +12,7 @@ from email.utils import parseaddr
 from imap_client_lib import EmailMessage
 
 from src.config.settings import ConfigManager
+from src.constants import FOLDER_INBOX, MIME_TEXT_HTML, MIME_TEXT_PLAIN
 from src.email.imap_client import EnhancedImapClient
 from src.interaction.scheduler_prompts import (
     SchedulerChoice,
@@ -353,7 +354,7 @@ class EmailSearch:
     @staticmethod
     def _show_body(result: dict, client: EnhancedImapClient) -> None:
         """Fetch and display the full body from IMAP."""
-        folder = result.get("folder", "INBOX")
+        folder = result.get("folder", FOLDER_INBOX)
         msg_id = result.get("message_id", "")
 
         try:
@@ -365,10 +366,10 @@ class EmailSearch:
 
             msg_data = raw[int(msg_id)][b"BODY[]"]
             email_msg = EmailMessage.from_bytes(msg_id, msg_data, include_attachments=False)
-            body = email_msg.get_body("text/plain")
+            body = email_msg.get_body(MIME_TEXT_PLAIN)
 
             if not body:
-                html = email_msg.get_body("text/html")
+                html = email_msg.get_body(MIME_TEXT_HTML)
                 if html:
                     body = re.sub(r"<[^>]+>", "", html).strip()
 
@@ -393,7 +394,7 @@ class EmailSearch:
         config: ConfigManager,
     ) -> None:
         """Copy the email to the search-results IMAP folder."""
-        folder = result.get("folder", "INBOX")
+        folder = result.get("folder", FOLDER_INBOX)
         msg_id = result.get("message_id", "")
         target = config.search_results_folder
 

@@ -1,8 +1,11 @@
+from __future__ import annotations
+
+import html
 import logging
 import re
-import html
-from typing import Optional
+
 from src.config.settings import ConfigManager
+from src.constants import CFG_EMAIL_ADDRESS
 from src.email.imap_client import EnhancedImapClient
 
 logger = logging.getLogger(__name__)
@@ -14,7 +17,7 @@ class RelationshipAnalyzer:
     def __init__(self, config: ConfigManager):
         self.config = config
 
-    def get_relationship_context(self, client_email: str, main_imap_client: EnhancedImapClient) -> Optional[str]:
+    def get_relationship_context(self, client_email: str, main_imap_client: EnhancedImapClient) -> str | None:
         """Get relationship context for a client email address."""
         # Check if client is an assignee (should always be informal)
         if self._is_client_an_assignee(client_email):
@@ -32,7 +35,7 @@ class RelationshipAnalyzer:
 
             for assignee_name in other_people:
                 assignee_rules = self.config.get_processing_rules(assignee_name)
-                assignee_email = assignee_rules.get("email_address", "")
+                assignee_email = assignee_rules.get(CFG_EMAIL_ADDRESS, "")
 
                 if assignee_email and client_email.lower() == assignee_email.lower():
                     logger.debug(f"Client {client_email} matches assignee {assignee_name}")
@@ -44,7 +47,7 @@ class RelationshipAnalyzer:
             logger.debug(f"Error checking if client is assignee: {e}")
             return False
 
-    def _get_last_sent_email_context(self, client_email: str, main_imap_client: EnhancedImapClient) -> Optional[str]:
+    def _get_last_sent_email_context(self, client_email: str, main_imap_client: EnhancedImapClient) -> str | None:
         """Find the last email sent to this client for relationship context."""
         try:
             main_account_config = self.config.get_first_account()

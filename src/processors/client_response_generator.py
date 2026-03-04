@@ -1,10 +1,27 @@
+from __future__ import annotations
+
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Optional
-from src.config.settings import ConfigManager
-from src.email.imap_client import EnhancedImapClient
+
 from src.ai.openai_client import OpenAIClient
+from src.config.settings import ConfigManager
+from src.constants import (
+    CFG_EMAIL_ADDRESS,
+    HEADER_DRAFT_CREATED,
+    HEADER_ORIGINAL_SENDER,
+    HEADER_TASK_ID,
+    KEY_EMAIL_MESSAGE,
+    KEY_RESPONSE,
+    KEY_SUBJECT,
+    KEY_TASK_BODY,
+    KEY_TASK_ID,
+    KEY_TASK_SUBJECT,
+    MIME_TEXT_HTML,
+    PREFIX_DRAFT_RESPONSE,
+    PREFIX_REPLY,
+)
+from src.email.imap_client import EnhancedImapClient
 from src.interaction.scheduler_prompts import scheduler_ask, scheduler_confirm, send_output
 
 logger = logging.getLogger(__name__)
@@ -17,8 +34,8 @@ class ClientResponseGenerator:
         self.config = config
         self.openai_client = openai_client
 
-    def generate_and_create_draft(self, original_task: Dict, assignee_response: str,
-                                 original_sender: str, last_sent_context: Optional[str],
+    def generate_and_create_draft(self, original_task: dict, assignee_response: str,
+                                 original_sender: str, last_sent_context: str | None,
                                  main_imap_client: EnhancedImapClient) -> bool:
         """Generate client response and create draft email."""
         try:
@@ -27,27 +44,27 @@ class ClientResponseGenerator:
                 return False
 
             # Extract original email information
-            email_message = original_task.get("email_message")
+            email_message = original_task.get(KEY_EMAIL_MESSAGE)
             if not email_message:
                 logger.error("No original email message found")
                 return False
 
             # Generate response using OpenAI with relationship context
             response_data = self.openai_client.generate_client_response(
-                original_subject=original_task.get("task_subject", ""),
-                original_content=original_task.get("task_body", ""),
-                assigned_task=original_task.get("task_subject", ""),
+                original_subject=original_task.get(KEY_TASK_SUBJECT, ""),
+                original_content=original_task.get(KEY_TASK_BODY, ""),
+                assigned_task=original_task.get(KEY_TASK_SUBJECT, ""),
                 assignee_response=assignee_response,
                 last_sent_context=last_sent_context
             )
 
             # Let user review/edit the response body when running interactively
-            response_body = response_data.get("response", "")
+            response_body = response_data.get(KEY_RESPONSE, "")
             edited_body = scheduler_ask(
                 f"AI-generated response:\n{response_body}\n\nEdit response (or keep as-is):",
                 default=response_body,
             )
-            response_data["response"] = edited_body
+            response_data[KEY_RESPONSE] = edited_body
 
             if not scheduler_confirm(
                 f"Create draft email to {original_sender}?", default=True
@@ -67,13 +84,13 @@ class ClientResponseGenerator:
             logger.error(f"Error generating client response: {e}")
             return False
 
-    def _create_draft_email(self, response_data: Dict, original_task: Dict,
+    def _create_draft_email(self, response_data: dict, original_task: dict,
                            original_sender: str, main_imap_client: EnhancedImapClient) -> bool:
         """Create draft email with generated response."""
         try:
             # Get response content
-            response_subject = response_data.get("subject", f"Re: {original_task.get('task_subject', 'Your request')}")
-            response_body = response_data.get("response", "Your request has been completed.")
+            response_subject = response_data.get(KEY_SUBJECT, f"{PREFIX_REPLY}{original_task.get(KEY_TASK_SUBJECT, 'Your request')}")
+            response_body = response_data.get(KEY_RESPONSE, "Your request has been completed.")
 
             # Create draft response instead of sending immediately
             main_account_config = self.config.get_first_account()
@@ -82,11 +99,11 @@ class ClientResponseGenerator:
                 return False
 
             # Create clean draft email as a proper reply
-            draft_subject = f"[DRAFT-RESPONSE] {response_subject}"
+            draft_subject = f"{PREFIX_DRAFT_RESPONSE} {response_subject}"
 
             # Create proper reply format with original email quoted
-            original_email_content = original_task.get('task_body', '')
-            original_subject = original_task.get('task_subject', '')
+            original_email_content = original_task.get(KEY_TASK_BODY, '')
+            original_subject = original_task.get(KEY_TASK_SUBJECT, '')
 
             # Load footer HTML
             footer_html = self._load_footer_html()
@@ -121,19 +138,19 @@ class ClientResponseGenerator:
 
             # Add task tracking headers to the draft
             draft_headers = {
-                "X-IMAP-Assistant-Task-ID": original_task.get('task_id', 'unknown'),
-                "X-IMAP-Assistant-Original-Sender": original_sender,
-                "X-IMAP-Assistant-Draft-Created": datetime.now().isoformat()
+                HEADER_TASK_ID: original_task.get(KEY_TASK_ID, 'unknown'),
+                HEADER_ORIGINAL_SENDER: original_sender,
+                HEADER_DRAFT_CREATED: datetime.now().isoformat(),
             }
 
             success = main_imap_client.client.save_draft(
                 to_addresses=[original_sender],
                 subject=draft_subject,
                 body=draft_body,
-                from_email=main_account_config.get("email_address"),
+                from_email=main_account_config.get(CFG_EMAIL_ADDRESS),
                 custom_headers=draft_headers,
                 draft_folder=drafts_folder,
-                content_type="text/html"
+                content_type=MIME_TEXT_HTML,
             )
 
             if success:

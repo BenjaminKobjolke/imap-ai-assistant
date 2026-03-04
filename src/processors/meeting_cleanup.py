@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import datetime, date, timezone, timedelta
-from typing import Optional, Tuple
+from datetime import UTC, date, datetime, timedelta
 
-from dateutil.tz import gettz, UTC as dateutil_UTC
 from dateutil.rrule import rrulestr
+from dateutil.tz import UTC as dateutil_UTC
+from dateutil.tz import gettz
 
+from src.constants import MIME_TEXT_CALENDAR
 from src.processors.meeting_display import (
     extract_meeting_links as _extract_meeting_links_fn,
     list_meetings,
@@ -61,17 +62,17 @@ class MeetingCleanup:
         raise ValueError(msg)
 
     @staticmethod
-    def _get_ics_data(email_message) -> Optional[bytes]:
+    def _get_ics_data(email_message: object) -> bytes | None:
         """Extract raw ICS data from an email message."""
         # Strategy 1: Check attachments for text/calendar
         attachments = getattr(email_message, "attachments", []) or []
         for attachment in attachments:
-            if attachment.content_type == "text/calendar" and attachment.data:
+            if attachment.content_type == MIME_TEXT_CALENDAR and attachment.data:
                 return attachment.data
 
         # Strategy 2: Fall back to text/calendar MIME part
         try:
-            calendar_text = email_message.get_body("text/calendar")
+            calendar_text = email_message.get_body(MIME_TEXT_CALENDAR)
             if calendar_text:
                 return calendar_text.encode("utf-8")
         except Exception:
@@ -80,7 +81,7 @@ class MeetingCleanup:
         return None
 
     @staticmethod
-    def _parse_dt_field(vevent_text: str, field: str) -> Optional[datetime]:
+    def _parse_dt_field(vevent_text: str, field: str) -> datetime | None:
         """Parse a DTSTART or DTEND field from a VEVENT text block."""
         m = re.search(rf'{field}(?:;([^:]*?))?[:]([^\r\n]+)', vevent_text)
         if not m:
@@ -113,7 +114,7 @@ class MeetingCleanup:
             return None
 
     @staticmethod
-    def _parse_vevent(ics_text: str) -> Optional[dict]:
+    def _parse_vevent(ics_text: str) -> dict | None:
         """Parse VEVENT block from ICS text using regex.
 
         Returns dict with 'dtstart', 'dtend' (datetime), and 'rrule' (str|None),
@@ -163,8 +164,8 @@ class MeetingCleanup:
     def _normalize_to_utc(dt: datetime) -> datetime:
         """Convert a timezone-aware datetime to UTC."""
         if dt.tzinfo is None:
-            return dt.replace(tzinfo=timezone.utc)
-        return dt.astimezone(timezone.utc)
+            return dt.replace(tzinfo=UTC)
+        return dt.astimezone(UTC)
 
     @staticmethod
     def _has_future_occurrence(parsed: dict, after: datetime) -> bool:
@@ -185,7 +186,7 @@ class MeetingCleanup:
         return _extract_meeting_links_fn(email_message, ics_text)
 
     @staticmethod
-    def extract_meeting_datetime(email_message) -> Optional[datetime]:
+    def extract_meeting_datetime(email_message: object) -> datetime | None:
         """Extract the meeting start datetime from ICS data in the email.
 
         Returns a timezone-aware UTC datetime, or None if no calendar data found.
@@ -205,7 +206,7 @@ class MeetingCleanup:
         return None
 
     @staticmethod
-    def extract_meeting_times(email_message) -> Tuple[Optional[datetime], Optional[datetime]]:
+    def extract_meeting_times(email_message: object) -> tuple[datetime | None, datetime | None]:
         """Extract meeting start and end datetimes from ICS data.
 
         Returns (dtstart, dtend) as timezone-aware UTC datetimes, or (None, None).
@@ -227,7 +228,7 @@ class MeetingCleanup:
         return None, None
 
     @staticmethod
-    def _parse_event_from_email(email_message) -> Optional[dict]:
+    def _parse_event_from_email(email_message: object) -> dict | None:
         """Parse the full VEVENT data (including RRULE) from an email."""
         ics_data = MeetingCleanup._get_ics_data(email_message)
         if ics_data is None:
@@ -250,7 +251,7 @@ class MeetingCleanup:
         folder = config.meetings_folder
         archive_folder = config.meetings_archive_folder
         age_limit_hours = config.meetings_age_limit_hours
-        cutoff = datetime.now(timezone.utc) - timedelta(hours=age_limit_hours)
+        cutoff = datetime.now(UTC) - timedelta(hours=age_limit_hours)
 
         logger.info(f"Scanning '{folder}' for meetings older than {age_limit_hours}h (cutoff: {cutoff.isoformat()})")
 
