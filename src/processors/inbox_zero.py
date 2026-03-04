@@ -8,11 +8,22 @@ from email.utils import parseaddr
 
 from src.ai.openai_client import OpenAIClient
 from src.config.settings import ConfigManager
-from src.constants import CFG_TARGET_FOLDER, FOLDER_INBOX, MIME_TEXT_HTML, MIME_TEXT_PLAIN
+from src.constants import (
+    ACTION_DRAFT_REPLY,
+    ACTION_SHOW_BODY,
+    CFG_TARGET_FOLDER,
+    FOLDER_INBOX,
+    MIME_TEXT_HTML,
+    MIME_TEXT_PLAIN,
+)
 from src.email.imap_client import EnhancedImapClient
 from src.email.smtp_client import SmtpClient
 from src.interaction.scheduler_prompts import SchedulerChoice, scheduler_ask, send_output
+from src.processors.draft_composer import DraftComposer, DraftContext
+from src.processors.draft_email_builder import DraftEmailBuilder, DraftEmailContent
+from src.processors.greeting_builder import GreetingBuilder
 from src.processors.rtm_todo import RtmTodoCreator
+from src.processors.salutation_manager import SalutationManager
 from src.search.search_cache import SearchCache
 
 logger = logging.getLogger(__name__)
@@ -77,9 +88,14 @@ class InboxZero:
                     while True:
                         action = InboxZero._prompt_action(suggestion)
 
-                        if action == "show_body":
+                        if action == ACTION_SHOW_BODY:
                             excerpt = InboxZero._get_body_excerpt(email_msg)
                             send_output(f"\n{excerpt}\n")
+                            continue
+                        if action == ACTION_DRAFT_REPLY:
+                            InboxZero._action_draft_reply(
+                                client, config, openai_client, cache, email_msg,
+                            )
                             continue
                         break
 
@@ -164,17 +180,19 @@ class InboxZero:
                 (f"Move to '{suggestion}'", "move_suggested"),
                 ("Move to other folder", "move_other"),
                 ("Add todo", "todo"),
+                ("Draft a reply", ACTION_DRAFT_REPLY),
                 ("Skip", "skip"),
                 ("Trash", "trash"),
-                ("Show body", "show_body"),
+                ("Show body", ACTION_SHOW_BODY),
             ]
         else:
             choices = [
                 ("Move to folder", "move_other"),
                 ("Add todo", "todo"),
+                ("Draft a reply", ACTION_DRAFT_REPLY),
                 ("Skip", "skip"),
                 ("Trash", "trash"),
-                ("Show body", "show_body"),
+                ("Show body", ACTION_SHOW_BODY),
             ]
 
         return SchedulerChoice("Action:", choices, abort=True).choose()
@@ -284,6 +302,57 @@ class InboxZero:
             logger.error("Failed to trash email: %s", e)
             send_output(f"  Error trashing email: {e}")
             return False
+
+    @staticmethod
+    def _action_draft_reply(
+        client: EnhancedImapClient,
+        config: ConfigManager,
+        openai_client: OpenAIClient,
+        cache: SearchCache,
+        email_msg: object,
+    ) -> None:
+        """Draft a reply to the email using AI."""
+        from_addr_raw = getattr(email_msg, "from_address", "") or ""
+        _, from_addr = parseaddr(from_addr_raw)
+        from_name = from_addr_raw.replace(f"<{from_addr}>", "").strip().strip('"')
+        subject = getattr(email_msg, "subject", "") or ""
+        body = InboxZero._get_body_excerpt(email_msg, max_chars=2000)
+
+        # 1. Resolve salutation
+        sal_mgr = SalutationManager(cache, config, openai_client, client)
+        salutation_info = sal_mgr.resolve_salutation(from_addr)
+
+        # 2. Build greeting
+        greeting = GreetingBuilder.build_greeting(salutation_info)
+
+        # 3. Compose draft via interactive loop
+        context = DraftContext(
+            original_subject=subject,
+            original_body=body,
+            original_from_address=from_addr,
+            original_from_name=from_name,
+            greeting=greeting,
+        )
+        composer = DraftComposer(openai_client)
+        final_body = composer.compose(context)
+
+        if not final_body:
+            send_output("  Draft cancelled.")
+            return
+
+        # 4. Build and save draft email
+        builder = DraftEmailBuilder(config, client)
+        content = DraftEmailContent(
+            to_address=from_addr,
+            subject=DraftEmailBuilder.make_reply_subject(subject),
+            greeting=greeting,
+            body_text=final_body,
+            footer_html=DraftEmailBuilder.load_footer_html(),
+            original_from=from_addr_raw,
+            original_subject=subject,
+            original_body=body,
+        )
+        builder.build_and_save(content)
 
     # ------------------------------------------------------------------
     # Helpers

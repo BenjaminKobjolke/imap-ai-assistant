@@ -17,6 +17,12 @@ class PromptLoader:
         self.task_completion_user_prompt_template = ""
         self.client_response_system_prompt = ""
         self.client_response_user_prompt_template = ""
+        self.draft_reply_system_prompt = ""
+        self.draft_reply_user_prompt_template = ""
+        self.draft_grammar_system_prompt = ""
+        self.draft_grammar_user_prompt_template = ""
+        self.salutation_system_prompt = ""
+        self.salutation_user_prompt_template = ""
         self._load()
 
     def _load(self) -> None:
@@ -43,6 +49,25 @@ class PromptLoader:
             )
             self.client_response_user_prompt_template = self._read_optional(
                 "prompts/client_response_user_prompt.txt",
+            )
+
+            self.draft_reply_system_prompt = self._read_optional(
+                "prompts/draft_reply_system_prompt.txt",
+            )
+            self.draft_reply_user_prompt_template = self._read_optional(
+                "prompts/draft_reply_user_prompt.txt",
+            )
+            self.draft_grammar_system_prompt = self._read_optional(
+                "prompts/draft_grammar_system_prompt.txt",
+            )
+            self.draft_grammar_user_prompt_template = self._read_optional(
+                "prompts/draft_grammar_user_prompt.txt",
+            )
+            self.salutation_system_prompt = self._read_optional(
+                "prompts/salutation_system_prompt.txt",
+            )
+            self.salutation_user_prompt_template = self._read_optional(
+                "prompts/salutation_user_prompt.txt",
             )
 
         except Exception as e:

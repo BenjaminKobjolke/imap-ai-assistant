@@ -15,8 +15,10 @@ from src.constants import (
     DEFAULT_MODEL,
     DEFAULT_TEMPERATURE,
     KEY_CONFIDENCE,
+    KEY_FORMAL,
     KEY_REASON,
     KEY_RESPONSE,
+    KEY_SALUTATION,
     KEY_STATUS,
     KEY_SUBJECT,
     PREFIX_REPLY,
@@ -456,6 +458,196 @@ class OpenAIClient:
                     request_id = str(time.time())
                 self.app_logger.log_ai_error(request_id, "client_response", e, {"original_subject": original_subject})
             return {KEY_RESPONSE: "Task completed.", KEY_SUBJECT: PREFIX_REPLY + original_subject}
+
+    def generate_draft_reply(
+        self,
+        original_subject: str,
+        original_body: str,
+        user_instruction: str,
+        conversation_history: str,
+    ) -> str | None:
+        """Generate a draft reply body from user instruction and original email context."""
+        request_id = None
+        start_time = time.time()
+
+        try:
+            from string import Template
+
+            template = Template(self._prompts.draft_reply_user_prompt_template)
+            user_prompt = template.safe_substitute(
+                original_subject=original_subject,
+                original_body=original_body,
+                user_instruction=user_instruction,
+                conversation_history=conversation_history or "(none)",
+            )
+
+            if self.app_logger:
+                request_data = {
+                    "original_subject": original_subject,
+                    "user_instruction": user_instruction,
+                    "system_prompt": self._prompts.draft_reply_system_prompt[:200] + "...",
+                    "user_prompt": user_prompt[:500] + "...",
+                }
+                metadata = {"model": self.model, "max_completion_tokens": 500, "temperature": 0.7}
+                request_id = self.app_logger.log_ai_request("draft_reply", request_data, metadata)
+
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": self._prompts.draft_reply_system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                max_completion_tokens=500,
+                temperature=0.7,
+            )
+
+            if response.choices and response.choices[0].message and response.choices[0].message.content:
+                content = response.choices[0].message.content.strip()
+
+                if self.app_logger and request_id:
+                    processing_time = time.time() - start_time
+                    tokens_used = {
+                        "prompt_tokens": response.usage.prompt_tokens if response.usage else 0,
+                        "completion_tokens": response.usage.completion_tokens if response.usage else 0,
+                        "total_tokens": response.usage.total_tokens if response.usage else 0,
+                    }
+                    self.app_logger.log_ai_response(request_id, "draft_reply", content, processing_time, tokens_used)
+
+                return content
+
+            logger.error("No response content from OpenAI for draft reply")
+            return None
+
+        except Exception as e:
+            logger.error(f"Error generating draft reply: {e}")
+            if self.app_logger:
+                if not request_id:
+                    request_id = str(time.time())
+                self.app_logger.log_ai_error(request_id, "draft_reply", e, {"original_subject": original_subject})
+            return None
+
+    def correct_grammar(self, body_text: str) -> str | None:
+        """Correct grammar and spelling in the given text."""
+        request_id = None
+        start_time = time.time()
+
+        try:
+            from string import Template
+
+            template = Template(self._prompts.draft_grammar_user_prompt_template)
+            user_prompt = template.safe_substitute(body_text=body_text)
+
+            if self.app_logger:
+                request_data = {
+                    "body_text": body_text[:300] + "...",
+                    "system_prompt": self._prompts.draft_grammar_system_prompt[:200] + "...",
+                }
+                metadata = {"model": self.model, "max_completion_tokens": 500, "temperature": 0.1}
+                request_id = self.app_logger.log_ai_request("grammar_correction", request_data, metadata)
+
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": self._prompts.draft_grammar_system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                max_completion_tokens=500,
+                temperature=0.1,
+            )
+
+            if response.choices and response.choices[0].message and response.choices[0].message.content:
+                content = response.choices[0].message.content.strip()
+
+                if self.app_logger and request_id:
+                    processing_time = time.time() - start_time
+                    tokens_used = {
+                        "prompt_tokens": response.usage.prompt_tokens if response.usage else 0,
+                        "completion_tokens": response.usage.completion_tokens if response.usage else 0,
+                        "total_tokens": response.usage.total_tokens if response.usage else 0,
+                    }
+                    self.app_logger.log_ai_response(
+                        request_id, "grammar_correction", content, processing_time, tokens_used,
+                    )
+
+                return content
+
+            logger.error("No response content from OpenAI for grammar correction")
+            return None
+
+        except Exception as e:
+            logger.error(f"Error correcting grammar: {e}")
+            if self.app_logger:
+                if not request_id:
+                    request_id = str(time.time())
+                self.app_logger.log_ai_error(request_id, "grammar_correction", e)
+            return None
+
+    def detect_salutation(self, email_address: str, sent_email_bodies: str) -> dict[str, Any] | None:
+        """Detect salutation from sent emails using AI. Returns {salutation, formal}."""
+        request_id = None
+        start_time = time.time()
+
+        try:
+            from string import Template
+
+            template = Template(self._prompts.salutation_user_prompt_template)
+            user_prompt = template.safe_substitute(
+                email_address=email_address,
+                sent_emails=sent_email_bodies,
+            )
+
+            if self.app_logger:
+                request_data = {
+                    "email_address": email_address,
+                    "sent_emails": sent_email_bodies[:300] + "...",
+                    "system_prompt": self._prompts.salutation_system_prompt[:200] + "...",
+                }
+                metadata = {"model": self.model, "max_completion_tokens": 100, "temperature": 0.3}
+                request_id = self.app_logger.log_ai_request("detect_salutation", request_data, metadata)
+
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": self._prompts.salutation_system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                max_completion_tokens=100,
+                temperature=0.3,
+                response_format={"type": "json_object"},
+            )
+
+            if response.choices and response.choices[0].message and response.choices[0].message.content:
+                content = response.choices[0].message.content.strip()
+
+                if self.app_logger and request_id:
+                    processing_time = time.time() - start_time
+                    tokens_used = {
+                        "prompt_tokens": response.usage.prompt_tokens if response.usage else 0,
+                        "completion_tokens": response.usage.completion_tokens if response.usage else 0,
+                        "total_tokens": response.usage.total_tokens if response.usage else 0,
+                    }
+                    self.app_logger.log_ai_response(request_id, "detect_salutation", content, processing_time, tokens_used)
+
+                try:
+                    result: dict[str, Any] = json.loads(content)
+                    if KEY_SALUTATION in result and KEY_FORMAL in result:
+                        return result
+                    logger.warning(f"Salutation response missing required keys: {result}")
+                    return None
+                except json.JSONDecodeError as e:
+                    logger.error(f"Failed to parse salutation response: {e}")
+                    return None
+
+            logger.error("No response content from OpenAI for salutation detection")
+            return None
+
+        except Exception as e:
+            logger.error(f"Error detecting salutation: {e}")
+            if self.app_logger:
+                if not request_id:
+                    request_id = str(time.time())
+                self.app_logger.log_ai_error(request_id, "detect_salutation", e, {"email_address": email_address})
+            return None
 
     def test_connection(self) -> bool:
         """Test OpenAI API connection."""

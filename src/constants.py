@@ -69,3 +69,27 @@ FOLDER_INBOX = "INBOX"
 FOLDER_DRAFTS = "Drafts"
 FOLDER_SENT = "Sent"
 FOLDER_TRASH = "Trash"
+
+# ---------------------------------------------------------------------------
+# Inbox-zero action keys
+# ---------------------------------------------------------------------------
+ACTION_DRAFT_REPLY = "draft_reply"
+ACTION_SHOW_BODY = "show_body"
+
+# ---------------------------------------------------------------------------
+# Greeting constants
+# ---------------------------------------------------------------------------
+GREETING_MORNING = "Guten Morgen"
+GREETING_DEFAULT = "Hallo"
+GREETING_MORNING_HOUR_LIMIT = 10
+
+# ---------------------------------------------------------------------------
+# Salutation AI response keys
+# ---------------------------------------------------------------------------
+KEY_SALUTATION = "salutation"
+KEY_FORMAL = "formal"
+
+# ---------------------------------------------------------------------------
+# Draft reply header
+# ---------------------------------------------------------------------------
+HEADER_DRAFT_REPLY = "X-IMAP-Assistant-Draft-Reply"

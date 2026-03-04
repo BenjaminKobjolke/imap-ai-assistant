@@ -37,6 +37,17 @@ CREATE TABLE IF NOT EXISTS cache_metadata (
 
 CREATE INDEX IF NOT EXISTS idx_email_cache_date_iso ON email_cache(date_iso);
 CREATE INDEX IF NOT EXISTS idx_email_cache_folder ON email_cache(folder);
+
+CREATE TABLE IF NOT EXISTS salutation_cache (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    email_address TEXT NOT NULL UNIQUE,
+    salutation TEXT NOT NULL DEFAULT '',
+    is_formal INTEGER NOT NULL DEFAULT 1,
+    skip_greeting INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_salutation_email ON salutation_cache(email_address);
 """
 
 
@@ -272,6 +283,50 @@ class SearchCache:
         if row:
             return row["folder"]
         return None
+
+    # ------------------------------------------------------------------
+    # Stats
+    # ------------------------------------------------------------------
+
+    # ------------------------------------------------------------------
+    # Salutation cache
+    # ------------------------------------------------------------------
+
+    def get_salutation(self, email_address: str) -> dict | None:
+        """Look up cached salutation for an email address. Returns dict or None."""
+        row = self._conn.execute(
+            "SELECT salutation, is_formal, skip_greeting FROM salutation_cache WHERE LOWER(email_address) = LOWER(?)",
+            (email_address,),
+        ).fetchone()
+        if not row:
+            return None
+        return {
+            "salutation": row["salutation"],
+            "is_formal": bool(row["is_formal"]),
+            "skip_greeting": bool(row["skip_greeting"]),
+        }
+
+    def save_salutation(
+        self,
+        email_address: str,
+        salutation: str,
+        *,
+        is_formal: bool = True,
+        skip_greeting: bool = False,
+    ) -> None:
+        """Insert or update salutation for an email address."""
+        now_iso = datetime.now().isoformat()
+        self._conn.execute(
+            """INSERT INTO salutation_cache (email_address, salutation, is_formal, skip_greeting, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?)
+               ON CONFLICT(email_address) DO UPDATE SET
+                   salutation = excluded.salutation,
+                   is_formal = excluded.is_formal,
+                   skip_greeting = excluded.skip_greeting,
+                   updated_at = excluded.updated_at""",
+            (email_address.lower(), salutation, int(is_formal), int(skip_greeting), now_iso, now_iso),
+        )
+        self._conn.commit()
 
     # ------------------------------------------------------------------
     # Stats
