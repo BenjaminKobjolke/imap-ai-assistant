@@ -5,6 +5,7 @@ import re
 from datetime import datetime, timedelta
 
 from src.config.settings import ConfigManager
+from src.interaction.scheduler_prompts import SchedulerChoice
 from src.processors.meeting_cleanup import MeetingCleanup
 
 logger = logging.getLogger(__name__)
@@ -256,6 +257,14 @@ class CalendarSetup:
                 cal_name = calendar_query
             date_str = event_date.strftime("%d.%m.%Y")
             print(f"Created: {title} on {date_str} {start_hour:02d}:00-{end_hour:02d}:00 ({cal_name})")
+            undo = SchedulerChoice(
+                "", [("Keep", "keep"), ("Undo (delete event)", "undo")],
+            ).choose()
+            if undo == "undo":
+                if gcal_client.delete_event_by_id(event_id):
+                    print("Event deleted.")
+                else:
+                    print("Failed to delete event.")
         else:
             print("Failed to create event.")
 

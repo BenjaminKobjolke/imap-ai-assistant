@@ -131,6 +131,21 @@ class GoogleCalendarClient:
             logger.error("Failed to delete event from Google Calendar: %s", e)
             return False
 
+    def delete_event_by_id(self, event_id: str) -> bool:
+        """Delete a calendar event by its Google Calendar event ID."""
+        if not self.service:
+            logger.error("Google Calendar service not initialized")
+            return False
+        try:
+            self.service.events().delete(
+                calendarId=self.calendar_id, eventId=event_id,
+            ).execute()
+            logger.info("Deleted event from Google Calendar, id=%s", event_id)
+            return True
+        except Exception as e:
+            logger.error("Failed to delete event by ID: %s", e)
+            return False
+
     def create_event(self, summary: str, start_dt: datetime, end_dt: datetime) -> str | None:
         """Create a calendar event from explicit start/end datetimes.
 
