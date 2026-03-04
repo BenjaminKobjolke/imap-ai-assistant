@@ -9,10 +9,15 @@ from dateutil.tz import UTC as dateutil_UTC
 from dateutil.tz import gettz
 
 from src.constants import MIME_TEXT_CALENDAR
+from src.interaction.scheduler_prompts import SchedulerChoice
 from src.processors.meeting_display import (
     extract_meeting_links as _extract_meeting_links_fn,
+)
+from src.processors.meeting_display import (
     list_meetings,
     safe_print,
+)
+from src.processors.meeting_display import (
     show_meeting_detail as _show_detail_fn,
 )
 
@@ -382,10 +387,23 @@ class MeetingCleanup:
 
     @staticmethod
     def list_todays_meetings(client, config, target_date: date | None = None) -> None:
-        """List meetings for a given date with 1-based indices."""
+        """List meetings for a given date with interactive detail selection."""
         target = target_date or date.today()
         meetings = MeetingCleanup.get_todays_meetings(client, config, target_date=target)
         list_meetings(meetings, target)
+
+        if not meetings:
+            return
+
+        while True:
+            choice = SchedulerChoice(
+                "",
+                [(f"{m['index']}. {m['subject']}", str(m['index'])) for m in meetings]
+                + [("Quit", "quit")],
+            ).choose()
+            if choice == "quit":
+                break
+            _show_detail_fn(meetings[int(choice) - 1])
 
     @staticmethod
     def show_meeting_detail(client, config, index: int) -> None:
