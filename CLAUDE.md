@@ -72,11 +72,16 @@ uv run python test_logger.py
 - Every public function/method must have a docstring or doc-comment explaining *why*, not *what*
 - Prefer composition over inheritance
 - Delete dead code — do not comment it out
-- Use string constants or enums instead of magic strings/numbers
+- Use string constants or enums instead of magic strings/numbers; centralize constants in `src/constants.py`
 - Use structured logging (key-value pairs) instead of string interpolation in log messages
 - Handle errors explicitly — no silent catches or bare `except:`
 - Write small, focused functions (aim for < 30 lines per function)
 - Naming: `snake_case` for files and directories, descriptive names for variables and functions
+- **Use objects for related values** — bundle related values into DTOs/dataclasses instead of many parameters
+- **Prefer type-safe values** — use typed DTOs, enums, generics over loosely typed values (e.g. `dict`)
+- **DRY (Don't Repeat Yourself)** — extract shared logic into reusable functions
+- **TDD** — write tests first, confirm they fail, implement, confirm they pass
+- **Confirm dependency versions** — verify version with user before adding new packages
 
 ### Python-Specific Rules
 - **Dependency management:** `uv` with `pyproject.toml` as single source of truth — no `requirements.txt`
@@ -89,6 +94,9 @@ uv run python test_logger.py
 - **Data classes:** `@dataclass` or `NamedTuple` for plain data objects
 - **Path handling:** `pathlib.Path` — no `os.path`
 - **Logging:** Use `ApplicationLogger` (src/logging/app_logger.py) — no bare `print()` in library code
+- **Mocking:** Always use `spec=ClassName` with `MagicMock` to validate against the real interface
+- **Required batch files:** `start.bat` and `tools/tests.bat` must exist and be kept up to date
+- **Localization:** Use `python-localization` library for multi-language string support
 
 ## Architecture & Core Components
 
