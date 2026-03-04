@@ -14,6 +14,7 @@ from imap_client_lib import EmailMessage
 from src.config.settings import ConfigManager
 from src.email.imap_client import EnhancedImapClient
 from src.interaction.scheduler_prompts import (
+    SchedulerChoice,
     scheduler_ask,
     scheduler_choose,
     scheduler_confirm,
@@ -174,15 +175,12 @@ class EmailSearch:
                 return
 
             # 1. Search scope
-            scope_options = [
-                "All (from, to, subject)",
-                "From only",
-                "To only",
-                "Subject only",
-            ]
-            scope_idx = scheduler_choose("Search scope:", scope_options, default=0)
-            field_map = ["all", "from", "to", "subject"]
-            field = field_map[scope_idx]
+            field = SchedulerChoice("Search scope:", [
+                ("All (from, to, subject)", "all"),
+                ("From only", "from"),
+                ("To only", "to"),
+                ("Subject only", "subject"),
+            ]).choose()
 
             # 2. Search term
             term = scheduler_ask("Search term:", default="")

@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 from src.calendar.google_calendar_client import GoogleCalendarClient
 from src.config.settings import ConfigManager
 from src.email.imap_client import EnhancedImapClient
-from src.interaction.scheduler_prompts import scheduler_choose, scheduler_confirm, send_output
+from src.interaction.scheduler_prompts import SchedulerChoice, scheduler_choose, scheduler_confirm, send_output
 from src.processors.invite_rsvp import InviteRsvp
 from src.processors.meeting_cleanup import MeetingCleanup
 
@@ -415,32 +415,26 @@ class InviteProcessor:
         """Prompt user for action on an invite. Returns 'yes', 'no', or 'skip'."""
         header = InviteProcessor._format_invite_header(invite)
         if already_in_calendar:
-            options = ["Move to meetings", "Archive", "Skip"]
-            mapping = ["move", "no", "skip"]
-            default = 0
+            choices = [("Move to meetings", "move"), ("Archive", "no"), ("Skip", "skip")]
         else:
-            options = ["Add to calendar", "Archive", "Skip"]
-            mapping = ["yes", "no", "skip"]
-            default = 0
+            choices = [("Add to calendar", "yes"), ("Archive", "no"), ("Skip", "skip")]
 
-        choice_index = scheduler_choose(f"{header}\nAction:", options, default=default)
-        return mapping[choice_index]
+        return SchedulerChoice(f"{header}\nAction:", choices).choose()
 
     @staticmethod
     def _prompt_cancellation(already_in_calendar: bool, invite: ParsedInvite) -> str:
         """Prompt user for action on a cancelled invite. Returns 'delete', 'archive', or 'skip'."""
         header = InviteProcessor._format_invite_header(invite)
         if already_in_calendar:
-            options = ["Delete from calendar & archive", "Archive only", "Skip"]
-            mapping = ["delete", "archive", "skip"]
-            default = 0
+            choices = [
+                ("Delete from calendar & archive", "delete"),
+                ("Archive only", "archive"),
+                ("Skip", "skip"),
+            ]
         else:
-            options = ["Archive", "Skip"]
-            mapping = ["archive", "skip"]
-            default = 0
+            choices = [("Archive", "archive"), ("Skip", "skip")]
 
-        choice_index = scheduler_choose(f"CANCELLED: {header}\nAction:", options, default=default)
-        return mapping[choice_index]
+        return SchedulerChoice(f"CANCELLED: {header}\nAction:", choices).choose()
 
     @staticmethod
     def _prompt_rsvp(invite: ParsedInvite) -> bool:
