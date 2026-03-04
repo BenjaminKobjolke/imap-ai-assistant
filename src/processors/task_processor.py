@@ -8,7 +8,7 @@ from src.ai.openai_client import OpenAIClient
 from src.config.settings import ConfigManager
 from src.email.imap_client import EnhancedImapClient
 from src.email.smtp_client import SmtpClient
-from src.interaction.scheduler_prompts import scheduler_ask, scheduler_choose, scheduler_confirm, send_output
+from src.interaction.scheduler_prompts import scheduler_choose, scheduler_confirm, send_output
 from src.processors.rtm_todo import RtmTodoCreator
 
 logger = logging.getLogger(__name__)
@@ -53,20 +53,21 @@ class TaskProcessor:
                 logger.error(f"Failed to generate todo for message {message_id}")
                 return False
 
-            todo_text, assignee = result
-            logger.info(f"📨 process_email_to_todo completed, todo: {todo_text}, assignee: {assignee}")
+            logger.info(f"📨 process_email_to_todo completed, todo: {result.rtm_text}, assignee: {result.assignee}")
 
-            # Let user review/edit todo text and assignee when running interactively
-            todo_text = scheduler_ask(f"Todo text: {todo_text}\nEdit todo (or keep as-is):", default=todo_text)
+            # Let user review/edit todo fields individually
+            result = RtmTodoCreator.edit_todo(result)
 
+            # Let user review/edit assignee
             assignee_options = ["self", *self.config.get_other_people_names()]
-            default_index = assignee_options.index(assignee) if assignee in assignee_options else 0
+            default_index = assignee_options.index(result.assignee) if result.assignee in assignee_options else 0
             assignee_index = scheduler_choose(
-                f"Assignee for this task (AI suggested: {assignee}):",
+                f"Assignee for this task (AI suggested: {result.assignee}):",
                 assignee_options,
                 default=default_index,
             )
             assignee = assignee_options[assignee_index]
+            todo_text = result.rtm_text
             send_output(f"Todo: {todo_text} (assignee: {assignee})")
 
             # Get processing rules based on assignee
@@ -78,6 +79,9 @@ class TaskProcessor:
             extra_tags = RtmTodoCreator.resolve_extra_tags(self.config, email_message.from_address, subject)
             if extra_tags:
                 subject_tag = f"{subject_tag} {extra_tags}"
+
+            # Let user edit tags
+            subject_tag = RtmTodoCreator.edit_tags(subject_tag)
             assignee_email = processing_rules.get("email_address", "")
             bcc_email = processing_rules.get("bcc", "")
 

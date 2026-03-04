@@ -4,6 +4,7 @@ import json
 import logging
 import re
 import time
+from dataclasses import dataclass
 from typing import Any
 
 from openai import OpenAI
@@ -12,6 +13,21 @@ from src.ai.prompt_loader import PromptLoader
 from src.logging.app_logger import ApplicationLogger
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class TodoResult:
+    """Structured result from AI todo generation."""
+
+    title: str
+    priority: int
+    due_date: str
+    assignee: str
+
+    @property
+    def rtm_text(self) -> str:
+        """Assemble into RTM format: 'Title !priority ^due_date'."""
+        return f"{self.title} !{self.priority} ^{self.due_date}"
 
 
 class OpenAIClient:
@@ -60,7 +76,7 @@ class OpenAIClient:
         """Get the client response user prompt template."""
         return self._prompts.client_response_user_prompt_template
 
-    def process_email_to_todo(self, subject: str, first_line: str, body_excerpt: str) -> tuple[str, str] | None:
+    def process_email_to_todo(self, subject: str, first_line: str, body_excerpt: str) -> TodoResult | None:
         """Process email content into RTM todo format using OpenAI."""
         request_id = None
         start_time = time.time()
@@ -133,26 +149,32 @@ class OpenAIClient:
                     # Parse JSON response
                     json_response = json.loads(response_content)
 
-                    # Extract todo text and assignee from JSON
-                    todo_text = json_response.get('todo', '')
+                    # Extract structured fields from JSON
+                    title = json_response.get('title', '')
                     assignee = json_response.get('assignee', 'self')
+                    priority = json_response.get('priority', 2)
+                    due_date = json_response.get('due_date', 'tomorrow')
 
-                    # Validate and clean the response
-                    validated_todo = self._validate_todo_format(todo_text)
-                    if validated_todo:
-                        logger.info(f"Validated todo: {validated_todo}, assignee: {assignee}")
-                        return validated_todo, assignee
+                    # Validate structured fields
+                    validated = self._validate_structured_todo(title, priority, due_date)
+                    if validated:
+                        clean_title, clean_priority, clean_due_date = validated
+                        result = TodoResult(clean_title, clean_priority, clean_due_date, assignee)
+                        logger.info(f"Validated todo: {result.rtm_text}, assignee: {assignee}")
+                        return result
                     else:
-                        logger.warning(f"Invalid todo format from OpenAI: {todo_text}")
-                        # Return a fallback todo
-                        return self._create_fallback_todo(subject, first_line, body_excerpt), "self"
+                        logger.warning(
+                            f"Invalid structured todo from OpenAI: "
+                            f"title={title}, priority={priority}, due_date={due_date}"
+                        )
+                        return self._create_fallback_todo(subject, first_line, body_excerpt)
 
                 except json.JSONDecodeError as e:
                     logger.error(f"Failed to parse JSON response: {e}")
-                    return self._create_fallback_todo(subject, first_line, body_excerpt), "self"
+                    return self._create_fallback_todo(subject, first_line, body_excerpt)
             else:
                 logger.error("No response content from OpenAI")
-                return self._create_fallback_todo(subject, first_line, body_excerpt), "self"
+                return self._create_fallback_todo(subject, first_line, body_excerpt)
 
         except Exception as e:
             logger.error(f"Error processing email with OpenAI: {e}")
@@ -161,32 +183,46 @@ class OpenAIClient:
                 if not request_id:
                     request_id = str(time.time())
                 self.app_logger.log_ai_error(request_id, "email_to_todo", e, {"subject": subject})
-            return self._create_fallback_todo(subject, first_line, body_excerpt), "self"
+            return self._create_fallback_todo(subject, first_line, body_excerpt)
 
-    def _validate_todo_format(self, todo_text: str) -> str | None:
-        """Validate that the todo text follows RTM format: TODONAME !importance ^duedate"""
+    def _validate_structured_todo(
+        self, title: str | Any, priority: int | Any, due_date: str | Any,
+    ) -> tuple[str, int, str] | None:
+        """Validate structured todo fields returned by OpenAI."""
         try:
-            # Clean up the response (remove quotes, extra whitespace)
-            todo_text = todo_text.strip().strip('"\'')
+            # Validate title is a non-empty string
+            if not isinstance(title, str) or not title.strip():
+                logger.debug("Structured todo validation failed: empty or non-string title")
+                return None
+            clean_title = title.strip()
 
-            # Check if it contains both importance (!1, !2, !3) and due date (^today, ^tomorrow, ^date)
-            importance_pattern = r'![123]'
-            due_date_pattern = r'\^(today|tomorrow|\d{1,2}\.\d{1,2}\.\d{4})'
-
-            has_importance = bool(re.search(importance_pattern, todo_text))
-            has_due_date = bool(re.search(due_date_pattern, todo_text))
-
-            if has_importance and has_due_date:
-                return todo_text
-            else:
-                logger.debug(f"Todo format validation failed: importance={has_importance}, due_date={has_due_date}")
+            # Validate priority is int 1, 2, or 3
+            try:
+                clean_priority = int(priority)
+            except (TypeError, ValueError):
+                logger.debug(f"Structured todo validation failed: invalid priority={priority}")
+                return None
+            if clean_priority not in (1, 2, 3):
+                logger.debug(f"Structured todo validation failed: priority={clean_priority} not in 1-3")
                 return None
 
+            # Validate due_date matches today|tomorrow|DD.MM.YYYY
+            if not isinstance(due_date, str) or not due_date.strip():
+                logger.debug("Structured todo validation failed: empty or non-string due_date")
+                return None
+            clean_due_date = due_date.strip()
+            due_date_pattern = r'^(today|tomorrow|\d{1,2}\.\d{1,2}\.\d{4})$'
+            if not re.match(due_date_pattern, clean_due_date):
+                logger.debug(f"Structured todo validation failed: due_date={clean_due_date} invalid format")
+                return None
+
+            return clean_title, clean_priority, clean_due_date
+
         except Exception as e:
-            logger.debug(f"Error validating todo format: {e}")
+            logger.debug(f"Error validating structured todo: {e}")
             return None
 
-    def _create_fallback_todo(self, subject: str, first_line: str, sender: str = "") -> str:
+    def _create_fallback_todo(self, subject: str, first_line: str, sender: str = "") -> TodoResult:
         """Create a fallback todo when OpenAI fails or returns invalid format."""
         # Use subject as todo name, default importance and due date
         todo_name = subject or first_line or "Unknown task"
@@ -206,10 +242,9 @@ class OpenAIClient:
         if len(todo_name) > 50:
             todo_name = todo_name[:50] + "..."
 
-        # Return with default importance and due date
-        fallback_todo = f"{todo_name} !2 ^tomorrow"
-        logger.info(f"Created fallback todo: {fallback_todo}")
-        return fallback_todo
+        result = TodoResult(title=todo_name, priority=2, due_date="tomorrow", assignee="self")
+        logger.info(f"Created fallback todo: {result.rtm_text}")
+        return result
 
     def _extract_sender_name(self, sender: str) -> str:
         """Extract clean sender name from sender string."""

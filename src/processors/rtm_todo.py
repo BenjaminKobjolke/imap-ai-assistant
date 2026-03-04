@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import logging
 
-from src.ai.openai_client import OpenAIClient
+from src.ai.openai_client import OpenAIClient, TodoResult
 from src.config.settings import ConfigManager
 from src.email.smtp_client import SmtpClient
-from src.interaction.scheduler_prompts import scheduler_ask, scheduler_confirm, send_output
+from src.interaction.scheduler_prompts import scheduler_ask, scheduler_choose, scheduler_confirm, send_output
 
 logger = logging.getLogger(__name__)
 
@@ -21,20 +21,46 @@ class RtmTodoCreator:
         subject: str,
         first_line: str,
         body_excerpt: str,
-    ) -> tuple[str, str] | None:
+    ) -> TodoResult | None:
         """AI-generate an RTM todo from email content.
 
-        Returns (todo_text, assignee) or None on failure.
+        Returns a TodoResult or None on failure.
         """
         return openai_client.process_email_to_todo(subject, first_line, body_excerpt)
 
     @staticmethod
-    def edit_todo(todo_text: str) -> str:
-        """Let the user edit the generated todo text via scheduler_ask."""
-        return scheduler_ask(
-            f"Todo text: {todo_text}\nEdit todo (or keep as-is):",
-            default=todo_text,
+    def edit_todo(result: TodoResult) -> TodoResult:
+        """Let the user edit each todo field individually."""
+        title = scheduler_ask("Title:", default=result.title)
+
+        priority_options = [
+            "1 - very important",
+            "2 - important",
+            "3 - not so important",
+        ]
+        priority_index = scheduler_choose(
+            "Priority:",
+            priority_options,
+            default=result.priority - 1,
         )
+        priority = priority_index + 1
+
+        due_date = scheduler_ask(
+            "Due date (today/tomorrow/DD.MM.YYYY):",
+            default=result.due_date,
+        )
+
+        return TodoResult(
+            title=title,
+            priority=priority,
+            due_date=due_date,
+            assignee=result.assignee,
+        )
+
+    @staticmethod
+    def edit_tags(subject_tag: str) -> str:
+        """Let the user edit the resolved tags string."""
+        return scheduler_ask("Tags:", default=subject_tag)
 
     @staticmethod
     def resolve_extra_tags(config: ConfigManager, sender: str, subject: str) -> str:
@@ -105,8 +131,7 @@ class RtmTodoCreator:
             send_output("Failed to generate todo.")
             return False, ""
 
-        todo_text, _assignee = result
-        todo_text = RtmTodoCreator.edit_todo(todo_text)
+        result = RtmTodoCreator.edit_todo(result)
 
         rules = config.get_processing_rules("self")
         subject_tag = rules["additional_subject_tag"]
@@ -114,6 +139,10 @@ class RtmTodoCreator:
         extra = RtmTodoCreator.resolve_extra_tags(config, from_address, subject)
         if extra:
             subject_tag = f"{subject_tag} {extra}"
+
+        subject_tag = RtmTodoCreator.edit_tags(subject_tag)
+
+        todo_text = result.rtm_text
 
         if dry_run:
             send_output(f"DRY RUN: would send '{todo_text} {subject_tag}'")
