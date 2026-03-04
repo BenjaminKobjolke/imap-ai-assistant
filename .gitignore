@@ -215,4 +215,5 @@ tools/analyze_code_config.bat
 code_analysis_results/
 /logs
 .claude
+.mcp.json
 data
