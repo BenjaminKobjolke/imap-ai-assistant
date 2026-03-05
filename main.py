@@ -23,6 +23,7 @@ logging.getLogger('urllib3').setLevel(logging.WARNING)
 logging.getLogger('requests').setLevel(logging.WARNING)
 logging.getLogger('googleapiclient').setLevel(logging.WARNING)
 logging.getLogger('google.auth').setLevel(logging.WARNING)
+logging.getLogger('httpx').setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 
@@ -96,6 +97,12 @@ def main() -> None:
                         help='Skip folders with unchanged message count (use with --update-cache)')
     parser.add_argument('--folders', metavar='FOLDERS',
                         help='Semicolon-separated folder list for --update-cache')
+    parser.add_argument('--update-calendars', action='store_true',
+                        help='Update the cached Google Calendar list')
+    parser.add_argument('--list-cached-calendars', action='store_true',
+                        help='Print cached Google Calendar names and IDs')
+    parser.add_argument('--ai', nargs='*', default=None,
+                        help='Conversational AI mode (optionally pass initial message)')
     parser.add_argument('--config', default='settings.json', help='Path to configuration file')
 
     args = parser.parse_args()
@@ -209,6 +216,15 @@ def main() -> None:
         processor.list_calendars()
         return
 
+    if args.update_calendars:
+        logger.info("Updating cached Google Calendar list...")
+        processor.update_calendar_cache()
+        return
+
+    if args.list_cached_calendars:
+        processor.list_cached_calendars()
+        return
+
     if args.process_invites:
         # Process meeting invites interactively
         processor.process_invites()
@@ -267,6 +283,11 @@ def main() -> None:
                 date_before=args.date_before,
                 path=args.path,
             )
+        return
+
+    if args.ai is not None:
+        initial_message = " ".join(args.ai) if args.ai else None
+        processor.ai_chat(initial_message=initial_message)
         return
 
     # No arguments: show help

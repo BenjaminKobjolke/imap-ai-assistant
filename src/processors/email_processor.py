@@ -504,6 +504,58 @@ class EmailProcessor:
         finally:
             client.disconnect()
 
+        self._update_calendar_cache()
+
+    def _update_calendar_cache(self) -> None:
+        """Fetch Google Calendar list and cache names in SQLite."""
+        from src.calendar.google_calendar_client import GoogleCalendarClient
+        from src.search.search_cache import SearchCache
+
+        gcal_client = GoogleCalendarClient.from_config(self.config)
+        if gcal_client is None:
+            logger.info("Google Calendar not available — skipping calendar cache")
+            return
+
+        calendars = gcal_client.list_calendars()
+        if not calendars:
+            return
+
+        entries = [
+            {"name": c.get("summary", ""), "id": c.get("id", "")}
+            for c in calendars if c.get("id")
+        ]
+        cache = SearchCache(self.config.search_cache_path)
+        try:
+            cache.save_calendars(entries)
+        finally:
+            cache.close()
+        logger.info("Cached %d calendar names", len(entries))
+
+    def update_calendar_cache(self) -> None:
+        """Public wrapper: fetch and cache Google Calendar list."""
+        self._update_calendar_cache()
+
+    def list_cached_calendars(self) -> None:
+        """Print cached Google Calendar names and IDs."""
+        from src.search.search_cache import SearchCache
+
+        cache = SearchCache(self.config.search_cache_path)
+        try:
+            calendars = cache.get_calendars()
+        finally:
+            cache.close()
+
+        if not calendars:
+            print("No cached calendars. Run --update-calendars first.")
+            return
+
+        print(f"\nCached Google Calendars ({len(calendars)}):")
+        print("-" * 60)
+        for cal in calendars:
+            print(f"  {cal['name']}")
+            print(f"    ID: {cal['id']}")
+        print()
+
     # -- Workflow delegations -------------------------------------------------------
 
     def list_workflows(self) -> None:
@@ -513,3 +565,21 @@ class EmailProcessor:
     def run_workflow(self, name: str) -> None:
         """Load and execute a named workflow."""
         self._workflow_runner.run_workflow(name)
+
+    # -- AI chat delegation --------------------------------------------------------
+
+    def ai_chat(self, initial_message: str | None = None) -> None:
+        """Start the conversational AI mode for natural language commands."""
+        from src.ai.chat_handler import ChatHandler, CommandExecutor
+        from src.ai.command_registry import CommandRegistry
+
+        if not self.openai_client:
+            logger.error("OpenAI client not initialized")
+            return
+
+        registry = CommandRegistry()
+        executor = CommandExecutor(self)
+        handler = ChatHandler(
+            self.openai_client, registry, executor, self.app_logger, self.config,
+        )
+        handler.run(initial_message=initial_message)

@@ -2,12 +2,9 @@
 
 from __future__ import annotations
 
-import sqlite3
 from pathlib import Path
-from unittest.mock import patch
 
 from src.search.search_cache import SearchCache, _build_term_conditions
-
 
 # ===================================================================
 # _build_term_conditions unit tests
@@ -80,39 +77,30 @@ class TestSearchCacheMultiWord:
     def _make_cache(self) -> SearchCache:
         """Create an in-memory SearchCache with test data."""
         cache = SearchCache(Path(":memory:"))
-        conn = cache._conn
-
-        conn.execute(
-            "INSERT INTO email_cache "
-            "(message_id, folder, from_address, from_name, to_address, to_name, "
-            " subject, date_str, date_iso, body_preview, cached_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                "1", "INBOX",
-                "s.laroche@yes-werbeagentur.de", "S. Laroche",
-                "me@example.com", "Me",
-                "Fwd: KBK Videothek App 0.1.20 (0.1.20) for iOS",
-                "Wed, 05 Mar 2026", "2026-03-05",
-                "Build is ready for testing",
-                "2026-03-05T12:00:00",
-            ),
-        )
-        conn.execute(
-            "INSERT INTO email_cache "
-            "(message_id, folder, from_address, from_name, to_address, to_name, "
-            " subject, date_str, date_iso, body_preview, cached_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                "2", "INBOX",
-                "alice@example.com", "Alice",
-                "me@example.com", "Me",
-                "Meeting tomorrow",
-                "Tue, 04 Mar 2026", "2026-03-04",
-                "Let us meet at 10am",
-                "2026-03-04T12:00:00",
-            ),
-        )
-        conn.commit()
+        cache.upsert_emails("INBOX", [
+            {
+                "message_id": "1",
+                "from_address": "s.laroche@yes-werbeagentur.de",
+                "from_name": "S. Laroche",
+                "to_address": "me@example.com",
+                "to_name": "Me",
+                "subject": "Fwd: KBK Videothek App 0.1.20 (0.1.20) for iOS",
+                "date_str": "Wed, 05 Mar 2026",
+                "date_iso": "2026-03-05",
+                "body_preview": "Build is ready for testing",
+            },
+            {
+                "message_id": "2",
+                "from_address": "alice@example.com",
+                "from_name": "Alice",
+                "to_address": "me@example.com",
+                "to_name": "Me",
+                "subject": "Meeting tomorrow",
+                "date_str": "Tue, 04 Mar 2026",
+                "date_iso": "2026-03-04",
+                "body_preview": "Let us meet at 10am",
+            },
+        ])
         return cache
 
     def test_cross_field_match(self) -> None:

@@ -292,6 +292,17 @@ class ConfigManager:
         return cal.get("accepts_meetings_calendar", {}).get("name", "")
 
     @property
+    def cached_calendars(self) -> list[dict[str, str]]:
+        """Return cached Google Calendar list [{name, id}, ...] from SQLite."""
+        from src.search.search_cache import SearchCache
+
+        cache = SearchCache(self.search_cache_path)
+        try:
+            return cache.get_calendars()
+        finally:
+            cache.close()
+
+    @property
     def free_check_calendars(self) -> list[dict[str, str]]:
         """Calendar entries to check for scheduling conflicts during invite processing."""
         return self._config.get("meetings", {}).get("google_calendar", {}).get("free_check_calendars", [])
@@ -450,7 +461,7 @@ class ConfigManager:
     @property
     def search_cache_path(self) -> Path:
         """Path to the SQLite search cache database."""
-        return Path(self._config.get("search", {}).get("cache_db", "data/email_cache.db"))
+        return Path(self._config.get("search", {}).get("cache_db", "data/cache.db"))
 
     @property
     def search_exclude_folders(self) -> list[str]:

@@ -4,51 +4,21 @@ from __future__ import annotations
 
 import logging
 import re
-import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
 
 from dateutil import parser as dateutil_parser
+from sqlalchemy import delete, func, select, text
+
+from src.search.models import (
+    CacheMetadata,
+    CalendarCache,
+    EmailCache,
+    SalutationCache,
+    create_session_factory,
+)
 
 logger = logging.getLogger(__name__)
-
-_SCHEMA = """
-CREATE TABLE IF NOT EXISTS email_cache (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    message_id TEXT NOT NULL,
-    folder TEXT NOT NULL,
-    from_address TEXT DEFAULT '',
-    from_name TEXT DEFAULT '',
-    to_address TEXT DEFAULT '',
-    to_name TEXT DEFAULT '',
-    subject TEXT DEFAULT '',
-    date_str TEXT DEFAULT '',
-    date_iso TEXT DEFAULT '',
-    body_preview TEXT DEFAULT '',
-    cached_at TEXT NOT NULL,
-    UNIQUE(folder, message_id)
-);
-
-CREATE TABLE IF NOT EXISTS cache_metadata (
-    folder TEXT PRIMARY KEY,
-    last_updated TEXT NOT NULL,
-    message_count INTEGER DEFAULT 0
-);
-
-CREATE INDEX IF NOT EXISTS idx_email_cache_date_iso ON email_cache(date_iso);
-CREATE INDEX IF NOT EXISTS idx_email_cache_folder ON email_cache(folder);
-
-CREATE TABLE IF NOT EXISTS salutation_cache (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    email_address TEXT NOT NULL UNIQUE,
-    salutation TEXT NOT NULL DEFAULT '',
-    is_formal INTEGER NOT NULL DEFAULT 1,
-    skip_greeting INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_salutation_email ON salutation_cache(email_address);
-"""
 
 
 def parse_date_to_iso(date_str: str) -> str:
@@ -128,19 +98,16 @@ def _build_term_conditions(term: str, field: str) -> tuple[list[str], list[str]]
 
 
 class SearchCache:
-    """SQLite-backed email search cache."""
+    """SQLAlchemy-backed email search cache."""
 
     def __init__(self, db_path: Path) -> None:
         """Open or create the SQLite database at *db_path*."""
-        db_path.parent.mkdir(parents=True, exist_ok=True)
         self._db_path = db_path
-        self._conn = sqlite3.connect(str(db_path))
-        self._conn.row_factory = sqlite3.Row
-        self._conn.executescript(_SCHEMA)
+        self._engine, self._Session = create_session_factory(str(db_path))
 
     def close(self) -> None:
-        """Close the database connection."""
-        self._conn.close()
+        """Dispose the engine and release all connections."""
+        self._engine.dispose()
 
     # ------------------------------------------------------------------
     # Cache freshness
@@ -148,16 +115,15 @@ class SearchCache:
 
     def is_folder_fresh(self, folder: str, max_age_days: int = 30) -> bool:
         """Return True if the folder was cached within *max_age_days*."""
-        row = self._conn.execute(
-            "SELECT last_updated FROM cache_metadata WHERE folder = ?", (folder,)
-        ).fetchone()
-        if not row:
-            return False
-        try:
-            last = datetime.fromisoformat(row["last_updated"])
-            return datetime.now() - last < timedelta(days=max_age_days)
-        except (ValueError, TypeError):
-            return False
+        with self._Session() as session:
+            meta = session.get(CacheMetadata, folder)
+            if not meta:
+                return False
+            try:
+                last = datetime.fromisoformat(meta.last_updated)
+                return datetime.now() - last < timedelta(days=max_age_days)
+            except (ValueError, TypeError):
+                return False
 
     def get_stale_folders(self, all_folders: list[str], max_age_days: int) -> list[str]:
         """Return folders from *all_folders* that are missing or expired."""
@@ -165,17 +131,17 @@ class SearchCache:
 
     def get_folder_message_count(self, folder: str) -> int | None:
         """Return the cached message count for a folder, or None if not cached."""
-        row = self._conn.execute(
-            "SELECT message_count FROM cache_metadata WHERE folder = ?", (folder,)
-        ).fetchone()
-        if not row:
-            return None
-        return row["message_count"]
+        with self._Session() as session:
+            meta = session.get(CacheMetadata, folder)
+            if not meta:
+                return None
+            return meta.message_count
 
     def has_any_data(self) -> bool:
         """Return True if the cache contains at least one email."""
-        row = self._conn.execute("SELECT COUNT(*) AS cnt FROM email_cache").fetchone()
-        return bool(row and row["cnt"] > 0)
+        with self._Session() as session:
+            count = session.scalar(select(func.count(EmailCache.id)))
+            return bool(count and count > 0)
 
     # ------------------------------------------------------------------
     # Writing
@@ -184,42 +150,48 @@ class SearchCache:
     def upsert_emails(self, folder: str, emails: list[dict]) -> None:
         """Bulk insert/replace emails for *folder* and update metadata."""
         now_iso = datetime.now().isoformat()
-        self._conn.execute("DELETE FROM email_cache WHERE folder = ?", (folder,))
-        self._conn.executemany(
-            """INSERT INTO email_cache
-               (message_id, folder, from_address, from_name,
-                to_address, to_name, subject, date_str, date_iso,
-                body_preview, cached_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            [
-                (
-                    e["message_id"], folder, e.get("from_address", ""),
-                    e.get("from_name", ""), e.get("to_address", ""),
-                    e.get("to_name", ""), e.get("subject", ""),
-                    e.get("date_str", ""), e.get("date_iso", ""),
-                    e.get("body_preview", ""), now_iso,
+        with self._Session() as session:
+            session.execute(delete(EmailCache).where(EmailCache.folder == folder))
+            session.add_all([
+                EmailCache(
+                    message_id=e["message_id"],
+                    folder=folder,
+                    from_address=e.get("from_address", ""),
+                    from_name=e.get("from_name", ""),
+                    to_address=e.get("to_address", ""),
+                    to_name=e.get("to_name", ""),
+                    subject=e.get("subject", ""),
+                    date_str=e.get("date_str", ""),
+                    date_iso=e.get("date_iso", ""),
+                    body_preview=e.get("body_preview", ""),
+                    cached_at=now_iso,
                 )
                 for e in emails
-            ],
-        )
-        self._conn.execute(
-            """INSERT OR REPLACE INTO cache_metadata (folder, last_updated, message_count)
-               VALUES (?, ?, ?)""",
-            (folder, now_iso, len(emails)),
-        )
-        self._conn.commit()
+            ])
+            session.merge(CacheMetadata(
+                folder=folder,
+                last_updated=now_iso,
+                message_count=len(emails),
+            ))
+            session.commit()
 
     def clear_folder(self, folder: str) -> None:
         """Remove all cached emails for *folder*."""
-        self._conn.execute("DELETE FROM email_cache WHERE folder = ?", (folder,))
-        self._conn.execute("DELETE FROM cache_metadata WHERE folder = ?", (folder,))
-        self._conn.commit()
+        with self._Session() as session:
+            session.execute(delete(EmailCache).where(EmailCache.folder == folder))
+            session.execute(delete(CacheMetadata).where(CacheMetadata.folder == folder))
+            session.commit()
 
     def clear_folder_by_prefix(self, folder_lower: str) -> None:
         """Remove cached data for any folder whose lowercase name matches *folder_lower*."""
-        self._conn.execute("DELETE FROM email_cache WHERE LOWER(folder) = ?", (folder_lower,))
-        self._conn.execute("DELETE FROM cache_metadata WHERE LOWER(folder) = ?", (folder_lower,))
-        self._conn.commit()
+        with self._Session() as session:
+            session.execute(
+                delete(EmailCache).where(func.lower(EmailCache.folder) == folder_lower)
+            )
+            session.execute(
+                delete(CacheMetadata).where(func.lower(CacheMetadata.folder) == folder_lower)
+            )
+            session.commit()
 
     # ------------------------------------------------------------------
     # Searching
@@ -236,47 +208,74 @@ class SearchCache:
         folder: str | None = None,
         limit: int = 9,
     ) -> list[dict]:
-        """Query the cache and return up to *limit* results sorted by date desc."""
+        """Query the cache and return up to *limit* results sorted by date desc.
+
+        Uses raw SQL via text() for the dynamic multi-word AND-search logic.
+        """
         conditions: list[str] = []
-        params: list[str] = []
+        params: dict[str, str] = {}
+        param_idx = 0
 
         if term:
-            term_conds, term_params = _build_term_conditions(term, field)
-            conditions.extend(term_conds)
-            params.extend(term_params)
+            columns = _FIELD_COLUMNS.get(field, _FIELD_COLUMNS["all"])
+            words = term.split()
+            for word in words:
+                like = f"%{word}%"
+                or_parts_list: list[str] = []
+                for col in columns:
+                    pname = f"p{param_idx}"
+                    or_parts_list.append(f"{col} LIKE :{pname}")
+                    params[pname] = like
+                    param_idx += 1
+                conditions.append(f"({' OR '.join(or_parts_list)})")
 
         if body_term:
-            conditions.append("body_preview LIKE ?")
-            params.append(f"%{body_term}%")
+            pname = f"p{param_idx}"
+            conditions.append(f"body_preview LIKE :{pname}")
+            params[pname] = f"%{body_term}%"
+            param_idx += 1
 
         if date_exact:
             iso = parse_user_date(date_exact)
             if iso:
-                conditions.append("date_iso LIKE ?")
-                params.append(f"{iso}%")
+                pname = f"p{param_idx}"
+                conditions.append(f"date_iso LIKE :{pname}")
+                params[pname] = f"{iso}%"
+                param_idx += 1
 
         if date_after:
             iso = parse_user_date(date_after)
             if iso:
-                conditions.append("date_iso >= ?")
-                params.append(iso)
+                pname = f"p{param_idx}"
+                conditions.append(f"date_iso >= :{pname}")
+                params[pname] = iso
+                param_idx += 1
 
         if date_before:
             iso = parse_user_date(date_before)
             if iso:
-                conditions.append("date_iso <= ?")
-                params.append(iso)
+                pname = f"p{param_idx}"
+                conditions.append(f"date_iso <= :{pname}")
+                params[pname] = iso
+                param_idx += 1
 
         if folder:
-            conditions.append("folder = ?")
-            params.append(folder)
+            pname = f"p{param_idx}"
+            conditions.append(f"folder = :{pname}")
+            params[pname] = folder
+            param_idx += 1
 
         where = " AND ".join(conditions) if conditions else "1=1"
-        sql = f"SELECT * FROM email_cache WHERE {where} ORDER BY date_iso DESC LIMIT ?"
-        params.append(str(limit))
+        limit_pname = f"p{param_idx}"
+        params[limit_pname] = str(limit)
 
-        rows = self._conn.execute(sql, params).fetchall()
-        return [dict(row) for row in rows]
+        sql = text(
+            f"SELECT * FROM email_cache WHERE {where} ORDER BY date_iso DESC LIMIT :{limit_pname}"
+        )
+
+        with self._Session() as session:
+            rows = session.execute(sql, params).mappings().all()
+            return [dict(row) for row in rows]
 
     # ------------------------------------------------------------------
     # Folder suggestion
@@ -286,23 +285,20 @@ class SearchCache:
         """Return the most common folder for emails from this sender, excluding INBOX."""
         if not from_address:
             return None
-        row = self._conn.execute(
-            """SELECT folder, COUNT(*) AS cnt
-               FROM email_cache
-               WHERE LOWER(from_address) = LOWER(?)
-                 AND LOWER(folder) != 'inbox'
-               GROUP BY folder
-               ORDER BY cnt DESC
-               LIMIT 1""",
-            (from_address,),
-        ).fetchone()
-        if row:
-            return row["folder"]
-        return None
-
-    # ------------------------------------------------------------------
-    # Stats
-    # ------------------------------------------------------------------
+        sql = text(
+            "SELECT folder, COUNT(*) AS cnt "
+            "FROM email_cache "
+            "WHERE LOWER(from_address) = LOWER(:addr) "
+            "  AND LOWER(folder) != 'inbox' "
+            "GROUP BY folder "
+            "ORDER BY cnt DESC "
+            "LIMIT 1"
+        )
+        with self._Session() as session:
+            row = session.execute(sql, {"addr": from_address}).mappings().first()
+            if row:
+                return row["folder"]
+            return None
 
     # ------------------------------------------------------------------
     # Salutation cache
@@ -310,17 +306,19 @@ class SearchCache:
 
     def get_salutation(self, email_address: str) -> dict | None:
         """Look up cached salutation for an email address. Returns dict or None."""
-        row = self._conn.execute(
-            "SELECT salutation, is_formal, skip_greeting FROM salutation_cache WHERE LOWER(email_address) = LOWER(?)",
-            (email_address,),
-        ).fetchone()
-        if not row:
-            return None
-        return {
-            "salutation": row["salutation"],
-            "is_formal": bool(row["is_formal"]),
-            "skip_greeting": bool(row["skip_greeting"]),
-        }
+        with self._Session() as session:
+            row = session.execute(
+                select(SalutationCache).where(
+                    func.lower(SalutationCache.email_address) == email_address.lower()
+                )
+            ).scalar_one_or_none()
+            if not row:
+                return None
+            return {
+                "salutation": row.salutation,
+                "is_formal": bool(row.is_formal),
+                "skip_greeting": bool(row.skip_greeting),
+            }
 
     def save_salutation(
         self,
@@ -332,17 +330,56 @@ class SearchCache:
     ) -> None:
         """Insert or update salutation for an email address."""
         now_iso = datetime.now().isoformat()
-        self._conn.execute(
-            """INSERT INTO salutation_cache (email_address, salutation, is_formal, skip_greeting, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?)
-               ON CONFLICT(email_address) DO UPDATE SET
-                   salutation = excluded.salutation,
-                   is_formal = excluded.is_formal,
-                   skip_greeting = excluded.skip_greeting,
-                   updated_at = excluded.updated_at""",
-            (email_address.lower(), salutation, int(is_formal), int(skip_greeting), now_iso, now_iso),
-        )
-        self._conn.commit()
+        with self._Session() as session:
+            existing = session.execute(
+                select(SalutationCache).where(
+                    func.lower(SalutationCache.email_address) == email_address.lower()
+                )
+            ).scalar_one_or_none()
+
+            if existing:
+                existing.salutation = salutation
+                existing.is_formal = is_formal
+                existing.skip_greeting = skip_greeting
+                existing.updated_at = now_iso
+            else:
+                session.add(SalutationCache(
+                    email_address=email_address.lower(),
+                    salutation=salutation,
+                    is_formal=is_formal,
+                    skip_greeting=skip_greeting,
+                    created_at=now_iso,
+                    updated_at=now_iso,
+                ))
+            session.commit()
+
+    # ------------------------------------------------------------------
+    # Calendar cache
+    # ------------------------------------------------------------------
+
+    def save_calendars(self, calendars: list[dict]) -> None:
+        """Replace all cached calendars with the given list.
+
+        Each dict must have 'name' and 'id' keys. Entries without an 'id' are skipped.
+        """
+        now_iso = datetime.now().isoformat()
+        with self._Session() as session:
+            session.execute(delete(CalendarCache))
+            session.add_all([
+                CalendarCache(
+                    calendar_id=c["id"],
+                    name=c.get("name", ""),
+                    cached_at=now_iso,
+                )
+                for c in calendars if c.get("id")
+            ])
+            session.commit()
+
+    def get_calendars(self) -> list[dict[str, str]]:
+        """Return all cached calendars as [{name, id}, ...]."""
+        with self._Session() as session:
+            rows = session.execute(select(CalendarCache)).scalars().all()
+            return [{"name": r.name, "id": r.calendar_id} for r in rows]
 
     # ------------------------------------------------------------------
     # Stats
@@ -350,13 +387,12 @@ class SearchCache:
 
     def get_stats(self) -> dict:
         """Return cache statistics."""
-        total = self._conn.execute("SELECT COUNT(*) AS cnt FROM email_cache").fetchone()
-        folders = self._conn.execute("SELECT COUNT(*) AS cnt FROM cache_metadata").fetchone()
-        oldest = self._conn.execute(
-            "SELECT MIN(last_updated) AS oldest FROM cache_metadata"
-        ).fetchone()
-        return {
-            "total_emails": total["cnt"] if total else 0,
-            "total_folders": folders["cnt"] if folders else 0,
-            "oldest_cache": oldest["oldest"] if oldest else None,
-        }
+        with self._Session() as session:
+            total = session.scalar(select(func.count(EmailCache.id))) or 0
+            folders = session.scalar(select(func.count(CacheMetadata.folder))) or 0
+            oldest = session.scalar(select(func.min(CacheMetadata.last_updated)))
+            return {
+                "total_emails": total,
+                "total_folders": folders,
+                "oldest_cache": oldest,
+            }
