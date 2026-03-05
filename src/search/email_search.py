@@ -5,14 +5,19 @@ from __future__ import annotations
 import email as email_stdlib
 import email.policy
 import logging
-import re
 from datetime import datetime
 from email.utils import parseaddr
 
-from imap_client_lib import EmailMessage
-
 from src.config.settings import ConfigManager
-from src.constants import FOLDER_INBOX, MIME_TEXT_HTML, MIME_TEXT_PLAIN
+from src.constants import (
+    FOLDER_INBOX,
+    SEARCH_MODE_ALL,
+    SEARCH_MODE_DEFAULT,
+    SEARCH_MODE_FOLDER,
+    SEARCH_MODE_INBOX,
+    SEARCH_MODE_SENT,
+)
+from src.email.email_body_viewer import EmailBodyViewer
 from src.email.imap_client import EnhancedImapClient
 from src.interaction.scheduler_prompts import (
     SchedulerChoice,
@@ -22,6 +27,7 @@ from src.interaction.scheduler_prompts import (
     send_output,
 )
 from src.search.cache_builder import CacheBuilder
+from src.search.folder_picker import folder_search_loop
 from src.search.search_cache import SearchCache, parse_date_to_iso, parse_user_date
 
 logger = logging.getLogger(__name__)
@@ -54,7 +60,9 @@ def _build_imap_criteria(
     if term:
         field_map = {"from": "FROM", "to": "TO", "subject": "SUBJECT"}
         imap_field = field_map.get(field, "TEXT")
-        criteria.extend([imap_field, term])
+        words = term.split()
+        for word in words:
+            criteria.extend([imap_field, word])
     if body_term:
         criteria.extend(["BODY", body_term])
     # Only use full dates (YYYY-MM-DD) for IMAP date criteria
@@ -172,10 +180,29 @@ class EmailSearch:
         """Interactive wizard when --search is used without arguments."""
         cache = SearchCache(config.search_cache_path)
         try:
-            if not EmailSearch._ensure_cache(client, config, cache):
+            # 1. Where to search?
+            mode = SchedulerChoice("Where to search?", [
+                ("Default (cached + live folders)", SEARCH_MODE_DEFAULT),
+                ("All IMAP folders", SEARCH_MODE_ALL),
+                ("Inbox only", SEARCH_MODE_INBOX),
+                ("Sent only", SEARCH_MODE_SENT),
+                ("Search for a folder", SEARCH_MODE_FOLDER),
+            ]).choose()
+
+            # Resolve a specific folder when the user picks "Search for a folder"
+            specific_folder: str | None = None
+            if mode == SEARCH_MODE_FOLDER:
+                specific_folder = EmailSearch._pick_search_folder(client)
+                if not specific_folder:
+                    send_output("No folder selected.")
+                    return
+
+            # Ensure cache exists for modes that need it
+            needs_cache = mode in (SEARCH_MODE_DEFAULT, SEARCH_MODE_FOLDER)
+            if needs_cache and not EmailSearch._ensure_cache(client, config, cache):
                 return
 
-            # 1. Search scope
+            # 2. Search scope
             field = SchedulerChoice("Search scope:", [
                 ("All (from, to, subject)", "all"),
                 ("From only", "from"),
@@ -183,17 +210,17 @@ class EmailSearch:
                 ("Subject only", "subject"),
             ]).choose()
 
-            # 2. Search term
+            # 3. Search term
             term = scheduler_ask("Search term:", default="")
             if not term:
                 send_output("No search term provided.")
                 return
 
-            # 3. Body search
+            # 4. Body search
             body_raw = scheduler_ask("Body contains (leave empty to skip):", default="")
             body_term: str | None = body_raw if body_raw else None
 
-            # 4. Date filter
+            # 5. Date filter
             date_options = ["None", "Exact date", "After date", "Before date"]
             date_idx = scheduler_choose("Date filter:", date_options, default=0)
 
@@ -207,8 +234,11 @@ class EmailSearch:
             elif date_idx == 3:
                 date_before = scheduler_ask("Before date (DD.MM.YYYY or YYYY):", default="")
 
-            # 5. Execute — search cache and live folders
-            cache_results = cache.search(
+            # 6. Execute — route based on selected mode
+            results = EmailSearch._execute_wizard_search(
+                client, config, cache,
+                mode=mode,
+                specific_folder=specific_folder,
                 term=term,
                 field=field,
                 body_term=body_term,
@@ -216,16 +246,6 @@ class EmailSearch:
                 date_after=date_after or None,
                 date_before=date_before or None,
             )
-
-            live_results = EmailSearch._search_live_folders(
-                client, config, term, field, body_term,
-                date_exact or None, date_after or None,
-                date_before or None, None,
-            )
-
-            results = live_results + cache_results
-            results.sort(key=lambda r: r.get("date_iso", ""), reverse=True)
-            results = results[:9]
 
             if not results:
                 send_output("No results found.")
@@ -356,32 +376,7 @@ class EmailSearch:
         """Fetch and display the full body from IMAP."""
         folder = result.get("folder", FOLDER_INBOX)
         msg_id = result.get("message_id", "")
-
-        try:
-            client.client.client.select_folder(folder)
-            raw = client.client.client.fetch([int(msg_id)], [b"BODY.PEEK[]"])
-            if not raw:
-                send_output("  Could not fetch email body.")
-                return
-
-            msg_data = raw[int(msg_id)][b"BODY[]"]
-            email_msg = EmailMessage.from_bytes(msg_id, msg_data, include_attachments=False)
-            body = email_msg.get_body(MIME_TEXT_PLAIN)
-
-            if not body:
-                html = email_msg.get_body(MIME_TEXT_HTML)
-                if html:
-                    body = re.sub(r"<[^>]+>", "", html).strip()
-
-            if body:
-                send_output(f"\n{'─' * 50}")
-                send_output(body)
-                send_output(f"{'─' * 50}\n")
-            else:
-                send_output("  (empty body)")
-        except Exception as e:
-            logger.error("Error fetching email body: %s", e)
-            send_output(f"  Error fetching body: {e}")
+        EmailBodyViewer.show_body(client, folder, msg_id)
 
     # ------------------------------------------------------------------
     # Copy to results folder
@@ -503,6 +498,178 @@ class EmailSearch:
         # Apply date post-filtering for partial dates
         results = _filter_results_by_date(results, date_exact, date_after, date_before)
         return results
+
+    # ------------------------------------------------------------------
+    # Wizard folder selection helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _pick_search_folder(client: EnhancedImapClient) -> str | None:
+        """List IMAP folders and let the user pick one via partial-name search."""
+        try:
+            all_folders = sorted(client.client.list_folders())
+        except Exception as e:
+            logger.error("Could not list folders: %s", e)
+            send_output(f"  Could not list folders: {e}")
+            return None
+
+        if not all_folders:
+            send_output("  No folders found.")
+            return None
+
+        return folder_search_loop(all_folders)
+
+    @staticmethod
+    def _execute_wizard_search(
+        client: EnhancedImapClient,
+        config: ConfigManager,
+        cache: SearchCache,
+        *,
+        mode: str,
+        specific_folder: str | None,
+        term: str,
+        field: str,
+        body_term: str | None,
+        date_exact: str | None,
+        date_after: str | None,
+        date_before: str | None,
+    ) -> list[dict]:
+        """Route the wizard search based on the selected mode."""
+        if mode == SEARCH_MODE_ALL:
+            return EmailSearch._search_all_imap_folders(
+                client, term, field, body_term,
+                date_exact, date_after, date_before,
+            )
+
+        if mode == SEARCH_MODE_INBOX:
+            target = FOLDER_INBOX
+            return EmailSearch._search_specific_folder(
+                client, config, cache, target,
+                term, field, body_term,
+                date_exact, date_after, date_before,
+            )
+
+        if mode == SEARCH_MODE_SENT:
+            target = config.get_sent_folder()
+            return EmailSearch._search_specific_folder(
+                client, config, cache, target,
+                term, field, body_term,
+                date_exact, date_after, date_before,
+            )
+
+        if mode == SEARCH_MODE_FOLDER and specific_folder:
+            return EmailSearch._search_specific_folder(
+                client, config, cache, specific_folder,
+                term, field, body_term,
+                date_exact, date_after, date_before,
+            )
+
+        # Default mode — search cache + live folders
+        cache_results = cache.search(
+            term=term,
+            field=field,
+            body_term=body_term,
+            date_exact=date_exact,
+            date_after=date_after,
+            date_before=date_before,
+        )
+        live_results = EmailSearch._search_live_folders(
+            client, config, term, field, body_term,
+            date_exact, date_after, date_before, None,
+        )
+        results = live_results + cache_results
+        results.sort(key=lambda r: r.get("date_iso", ""), reverse=True)
+        return results[:9]
+
+    @staticmethod
+    def _search_all_imap_folders(
+        client: EnhancedImapClient,
+        term: str,
+        field: str,
+        body_term: str | None,
+        date_exact: str | None,
+        date_after: str | None,
+        date_before: str | None,
+        limit: int = 9,
+    ) -> list[dict]:
+        """Search every IMAP folder with progress output."""
+        try:
+            all_folders = sorted(client.client.list_folders())
+        except Exception as e:
+            logger.error("Could not list folders: %s", e)
+            send_output(f"  Could not list folders: {e}")
+            return []
+
+        results: list[dict] = []
+        for i, folder in enumerate(all_folders, 1):
+            send_output(f"  Searching {i}/{len(all_folders)}: {folder}")
+            try:
+                folder_results = EmailSearch._search_single_live_folder(
+                    client, folder, term, field, body_term,
+                    date_exact, date_after, date_before, limit,
+                )
+                results.extend(folder_results)
+            except Exception as e:
+                logger.error("Error searching folder '%s': %s", folder, e)
+
+        results.sort(key=lambda r: r.get("date_iso", ""), reverse=True)
+        return results[:limit]
+
+    @staticmethod
+    def _search_specific_folder(
+        client: EnhancedImapClient,
+        config: ConfigManager,
+        cache: SearchCache,
+        folder: str,
+        term: str,
+        field: str,
+        body_term: str | None,
+        date_exact: str | None,
+        date_after: str | None,
+        date_before: str | None,
+        limit: int = 9,
+    ) -> list[dict]:
+        """Search a specific folder using cache, live config, or direct IMAP."""
+        live_folders = config.search_live_folders
+
+        # If folder is a live folder, search via IMAP directly
+        if folder in live_folders:
+            try:
+                results = EmailSearch._search_single_live_folder(
+                    client, folder, term, field, body_term,
+                    date_exact, date_after, date_before, limit,
+                )
+                results.sort(key=lambda r: r.get("date_iso", ""), reverse=True)
+                return results[:limit]
+            except Exception as e:
+                logger.error("Error searching live folder '%s': %s", folder, e)
+                return []
+
+        # Try cache first
+        cache_results = cache.search(
+            term=term,
+            field=field,
+            body_term=body_term,
+            date_exact=date_exact,
+            date_after=date_after,
+            date_before=date_before,
+            folder=folder,
+        )
+        if cache_results:
+            cache_results.sort(key=lambda r: r.get("date_iso", ""), reverse=True)
+            return cache_results[:limit]
+
+        # Fall back to direct IMAP search
+        try:
+            results = EmailSearch._search_single_live_folder(
+                client, folder, term, field, body_term,
+                date_exact, date_after, date_before, limit,
+            )
+            results.sort(key=lambda r: r.get("date_iso", ""), reverse=True)
+            return results[:limit]
+        except Exception as e:
+            logger.error("Error searching folder '%s': %s", folder, e)
+            return []
 
     # ------------------------------------------------------------------
     # Cache helpers

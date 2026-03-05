@@ -97,6 +97,36 @@ def parse_user_date(raw: str) -> str:
     return ""
 
 
+_FIELD_COLUMNS: dict[str, list[str]] = {
+    "from": ["from_address", "from_name"],
+    "to": ["to_address", "to_name"],
+    "subject": ["subject"],
+    "all": ["from_address", "from_name", "to_address", "to_name", "subject"],
+}
+
+
+def _build_term_conditions(term: str, field: str) -> tuple[list[str], list[str]]:
+    """Build SQL conditions that AND-match each word across the relevant columns.
+
+    Each word in *term* must appear in at least one column for the given
+    *field*.  Multiple words produce one condition per word, all AND'd.
+    """
+    columns = _FIELD_COLUMNS.get(field, _FIELD_COLUMNS["all"])
+    words = term.split()
+    if not words:
+        return [], []
+
+    conditions: list[str] = []
+    params: list[str] = []
+    for word in words:
+        like = f"%{word}%"
+        or_parts = " OR ".join(f"{col} LIKE ?" for col in columns)
+        conditions.append(f"({or_parts})")
+        params.extend([like] * len(columns))
+
+    return conditions, params
+
+
 class SearchCache:
     """SQLite-backed email search cache."""
 
@@ -211,23 +241,9 @@ class SearchCache:
         params: list[str] = []
 
         if term:
-            like = f"%{term}%"
-            if field == "from":
-                conditions.append("(from_address LIKE ? OR from_name LIKE ?)")
-                params.extend([like, like])
-            elif field == "to":
-                conditions.append("(to_address LIKE ? OR to_name LIKE ?)")
-                params.extend([like, like])
-            elif field == "subject":
-                conditions.append("subject LIKE ?")
-                params.append(like)
-            else:  # "all"
-                conditions.append(
-                    "(from_address LIKE ? OR from_name LIKE ? "
-                    "OR to_address LIKE ? OR to_name LIKE ? "
-                    "OR subject LIKE ?)"
-                )
-                params.extend([like, like, like, like, like])
+            term_conds, term_params = _build_term_conditions(term, field)
+            conditions.extend(term_conds)
+            params.extend(term_params)
 
         if body_term:
             conditions.append("body_preview LIKE ?")

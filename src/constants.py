@@ -101,3 +101,12 @@ KEY_FORMAL = "formal"
 # Draft reply header
 # ---------------------------------------------------------------------------
 HEADER_DRAFT_REPLY = "X-IMAP-Assistant-Draft-Reply"
+
+# ---------------------------------------------------------------------------
+# Search mode constants (wizard folder selection)
+# ---------------------------------------------------------------------------
+SEARCH_MODE_DEFAULT = "default"
+SEARCH_MODE_ALL = "all"
+SEARCH_MODE_INBOX = "inbox"
+SEARCH_MODE_SENT = "sent"
+SEARCH_MODE_FOLDER = "folder"
