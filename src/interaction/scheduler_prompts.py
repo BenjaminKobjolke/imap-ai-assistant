@@ -23,7 +23,7 @@ class SchedulerAbortError(Exception):
     """Raised when the user does not answer a scheduler prompt."""
 
 
-def _is_interactive() -> bool:
+def is_interactive() -> bool:
     """Return True when running under the task scheduler with SDK available."""
     if not _SDK_AVAILABLE:
         import os
@@ -35,7 +35,7 @@ def _is_interactive() -> bool:
 
 def scheduler_confirm(message: str, *, default: bool) -> bool:
     """Confirm yes/no. Delegates to SDK or falls back to console input."""
-    if _is_interactive():
+    if is_interactive():
         result = confirm(message, default=default)
         if result is None:
             raise SchedulerAbortError("User did not answer confirm prompt")
@@ -50,7 +50,7 @@ def scheduler_confirm(message: str, *, default: bool) -> bool:
 
 def scheduler_ask(message: str, *, default: str) -> str:
     """Ask for free-form text. Delegates to SDK or falls back to console input."""
-    if _is_interactive():
+    if is_interactive():
         result = ask(message, default=default)
         if result is None:
             raise SchedulerAbortError("User did not answer ask prompt")
@@ -73,7 +73,7 @@ def scheduler_choose(
     but not displayed in the numbered list. When a hidden shortcut is selected,
     the return value is ``len(options) + position`` in the hidden_options dict.
     """
-    if _is_interactive():
+    if is_interactive():
         result = choose(message, options, default=default, hidden_options=hidden_options)
         if result is None:
             raise SchedulerAbortError("User did not answer choose prompt")
@@ -141,7 +141,7 @@ def send_output(text: str) -> None:
     When interactive, delegates to the SDK output() for protocol-level display.
     Otherwise falls back to print() for normal console output.
     """
-    if _is_interactive():
+    if is_interactive():
         output(text)
     else:
         print(text)
