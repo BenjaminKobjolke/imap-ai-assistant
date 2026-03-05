@@ -23,6 +23,8 @@ class PromptLoader:
         self.draft_grammar_user_prompt_template = ""
         self.salutation_system_prompt = ""
         self.salutation_user_prompt_template = ""
+        self.ai_chat_system_prompt = ""
+        self.ai_chat_function_prompt = ""
         self._load()
 
     def _load(self) -> None:
@@ -68,6 +70,12 @@ class PromptLoader:
             )
             self.salutation_user_prompt_template = self._read_optional(
                 "prompts/salutation_user_prompt.txt",
+            )
+            self.ai_chat_system_prompt = self._read_optional(
+                "prompts/ai_chat_system_prompt.txt",
+            )
+            self.ai_chat_function_prompt = self._read_optional(
+                "prompts/ai_chat_function_prompt.txt",
             )
 
         except Exception as e:

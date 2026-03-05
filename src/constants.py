@@ -110,3 +110,17 @@ SEARCH_MODE_ALL = "all"
 SEARCH_MODE_INBOX = "inbox"
 SEARCH_MODE_SENT = "sent"
 SEARCH_MODE_FOLDER = "folder"
+
+# ---------------------------------------------------------------------------
+# AI chat mode constants
+# ---------------------------------------------------------------------------
+AI_CHAT_MAX_INTENT_TOKENS = 300
+AI_CHAT_MAX_VALIDATE_TOKENS = 200
+AI_CHAT_INTENT_TEMPERATURE = 0.3
+AI_CHAT_VALIDATE_TEMPERATURE = 0.1
+AI_CHAT_TIMEOUT = 30.0
+
+# ---------------------------------------------------------------------------
+# OpenAI client timeout (seconds)
+# ---------------------------------------------------------------------------
+OPENAI_TIMEOUT = 60.0

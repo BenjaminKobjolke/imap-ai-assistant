@@ -11,6 +11,11 @@ from openai import OpenAI
 
 from src.ai.prompt_loader import PromptLoader
 from src.constants import (
+    AI_CHAT_INTENT_TEMPERATURE,
+    AI_CHAT_MAX_INTENT_TOKENS,
+    AI_CHAT_MAX_VALIDATE_TOKENS,
+    AI_CHAT_TIMEOUT,
+    AI_CHAT_VALIDATE_TEMPERATURE,
     DEFAULT_MAX_TOKENS,
     DEFAULT_MODEL,
     DEFAULT_TEMPERATURE,
@@ -21,6 +26,7 @@ from src.constants import (
     KEY_SALUTATION,
     KEY_STATUS,
     KEY_SUBJECT,
+    OPENAI_TIMEOUT,
     PREFIX_REPLY,
     STATUS_UNCLEAR,
 )
@@ -52,7 +58,7 @@ class OpenAIClient:
         temperature: float = DEFAULT_TEMPERATURE, other_people: list[str] | None = None,
         app_logger: ApplicationLogger | None = None,
     ):
-        self.client = OpenAI(api_key=api_key)
+        self.client = OpenAI(api_key=api_key, timeout=OPENAI_TIMEOUT)
         self.model = model
         self.max_completion_tokens = max_completion_tokens
         self.temperature = temperature
@@ -707,3 +713,189 @@ class OpenAIClient:
                     request_id = str(time.time())
                 self.app_logger.log_ai_error(request_id, "connection_test", e)
             return False
+
+    # -- AI chat mode methods ---------------------------------------------------
+
+    def build_ai_chat_system_prompt(self, commands_description: str, calendars: str = "") -> str:
+        """Build the system prompt for AI chat intent detection."""
+        from datetime import datetime
+        from string import Template
+
+        template = Template(self._prompts.ai_chat_system_prompt)
+        current_date = datetime.now().strftime("%d.%m.%Y")
+        return template.safe_substitute(
+            current_date=current_date,
+            commands=commands_description,
+            calendars=calendars,
+        )
+
+    def ai_chat_detect_intent(
+        self, messages: list[dict[str, str]],
+    ) -> str | None:
+        """Phase 1: Detect user intent from conversation history.
+
+        Returns the raw AI response text (expected JSON with command,
+        parameters, follow_up_question, summary).
+        """
+        request_id = None
+        start_time = time.time()
+
+        try:
+            logger.debug(
+                "ai_chat_detect_intent: sending %d messages to model=%s",
+                len(messages), self.model,
+            )
+
+            if self.app_logger:
+                request_data = {"messages_count": len(messages)}
+                metadata = {
+                    "model": self.model,
+                    "max_completion_tokens": AI_CHAT_MAX_INTENT_TOKENS,
+                    "temperature": AI_CHAT_INTENT_TEMPERATURE,
+                }
+                request_id = self.app_logger.log_ai_request(
+                    "ai_chat_intent", request_data, metadata,
+                )
+
+            logger.debug("ai_chat_detect_intent: calling OpenAI API (timeout=%ss)...", AI_CHAT_TIMEOUT)
+            response = self.client.chat.completions.create(  # type: ignore[call-overload]
+                model=self.model,
+                messages=messages,
+                max_completion_tokens=AI_CHAT_MAX_INTENT_TOKENS,
+                temperature=AI_CHAT_INTENT_TEMPERATURE,
+                response_format={"type": "json_object"},
+                timeout=AI_CHAT_TIMEOUT,
+            )
+            logger.debug("ai_chat_detect_intent: API response received")
+
+            if (
+                response.choices
+                and response.choices[0].message
+                and response.choices[0].message.content
+            ):
+                content = response.choices[0].message.content.strip()
+                logger.debug("AI chat intent response: %s", content)
+
+                if self.app_logger and request_id:
+                    processing_time = time.time() - start_time
+                    tokens_used = {
+                        "prompt_tokens": response.usage.prompt_tokens if response.usage else 0,
+                        "completion_tokens": response.usage.completion_tokens if response.usage else 0,
+                        "total_tokens": response.usage.total_tokens if response.usage else 0,
+                    }
+                    self.app_logger.log_ai_response(
+                        request_id, "ai_chat_intent",
+                        content, processing_time, tokens_used,
+                    )
+
+                return str(content)
+
+            logger.error("No response content from OpenAI for intent detection")
+            return None
+
+        except Exception as e:
+            logger.error("Error detecting intent: %s", e, exc_info=True)
+            if self.app_logger:
+                if not request_id:
+                    request_id = str(time.time())
+                self.app_logger.log_ai_error(request_id, "ai_chat_intent", e)
+            return None
+
+    def ai_chat_validate_parameters(
+        self,
+        command_name: str,
+        extracted_params: dict[str, Any],
+        summary: str,
+        tools: list[dict[str, Any]],
+    ) -> dict[str, Any] | None:
+        """Phase 2: Validate and structure parameters via function calling.
+
+        Returns dict with 'name' and 'arguments' from the tool call,
+        or None if validation fails.
+        """
+        request_id = None
+        start_time = time.time()
+
+        try:
+            logger.debug(
+                "ai_chat_validate_parameters: command=%s, params=%s",
+                command_name, extracted_params,
+            )
+
+            user_content = json.dumps({
+                "command": command_name,
+                "parameters": extracted_params,
+                "summary": summary,
+            })
+
+            messages = [
+                {"role": "system", "content": self._prompts.ai_chat_function_prompt},
+                {"role": "user", "content": user_content},
+            ]
+
+            if self.app_logger:
+                request_data = {
+                    "command": command_name,
+                    "parameters": extracted_params,
+                    "summary": summary,
+                }
+                metadata = {
+                    "model": self.model,
+                    "max_completion_tokens": AI_CHAT_MAX_VALIDATE_TOKENS,
+                    "temperature": AI_CHAT_VALIDATE_TEMPERATURE,
+                }
+                request_id = self.app_logger.log_ai_request(
+                    "ai_chat_validate", request_data, metadata,
+                )
+
+            logger.debug("ai_chat_validate_parameters: calling OpenAI API (timeout=%ss)...", AI_CHAT_TIMEOUT)
+            response = self.client.chat.completions.create(  # type: ignore[call-overload]
+                model=self.model,
+                messages=messages,
+                tools=tools,
+                tool_choice={"type": "function", "function": {"name": command_name}},
+                max_completion_tokens=AI_CHAT_MAX_VALIDATE_TOKENS,
+                temperature=AI_CHAT_VALIDATE_TEMPERATURE,
+                timeout=AI_CHAT_TIMEOUT,
+            )
+            logger.debug("ai_chat_validate_parameters: API response received")
+
+            if (
+                response.choices
+                and response.choices[0].message
+                and response.choices[0].message.tool_calls
+            ):
+                tool_call = response.choices[0].message.tool_calls[0]
+                result: dict[str, Any] = {
+                    "name": tool_call.function.name,
+                    "arguments": json.loads(tool_call.function.arguments),
+                }
+                logger.debug("AI chat validate response: %s", result)
+
+                if self.app_logger and request_id:
+                    processing_time = time.time() - start_time
+                    tokens_used = {
+                        "prompt_tokens": response.usage.prompt_tokens if response.usage else 0,
+                        "completion_tokens": response.usage.completion_tokens if response.usage else 0,
+                        "total_tokens": response.usage.total_tokens if response.usage else 0,
+                    }
+                    self.app_logger.log_ai_response(
+                        request_id, "ai_chat_validate",
+                        json.dumps(result), processing_time, tokens_used,
+                    )
+
+                return result
+
+            logger.error("No tool call in OpenAI response for parameter validation")
+            return None
+
+        except Exception as e:
+            logger.error("Error validating parameters: %s", e, exc_info=True)
+            if self.app_logger:
+                if not request_id:
+                    request_id = str(time.time())
+                self.app_logger.log_ai_error(
+                    request_id, "ai_chat_validate", e,
+                    {"command": command_name},
+                )
+            return None
