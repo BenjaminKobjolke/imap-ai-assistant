@@ -4,6 +4,7 @@ import logging
 from pathlib import Path
 
 from src.ai.openai_client import OpenAIClient
+from src.browse.folder_browser import FolderBrowser
 from src.config.settings import ConfigManager
 from src.email.imap_client import EnhancedImapClient
 from src.email.smtp_client import SmtpClient
@@ -439,6 +440,20 @@ class EmailProcessor:
             "subject_tag": self.config.subject_tag,
             "openai_model": self.config.openai_model
         }
+
+    # -- Browse delegation ----------------------------------------------------------
+
+    def browse(self) -> None:
+        """Interactive IMAP folder and email browser."""
+        client = self._connect_main_account()
+        if not client:
+            return
+        try:
+            FolderBrowser(client, self.config, self.openai_client).browse()
+        except Exception as e:
+            logger.error("Error in browse: %s", e)
+        finally:
+            client.disconnect()
 
     # -- Search delegations ---------------------------------------------------------
 

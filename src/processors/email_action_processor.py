@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from email.utils import parseaddr
 
 from src.ai.openai_client import OpenAIClient
 from src.config.settings import ConfigManager
@@ -11,23 +10,18 @@ from src.constants import (
     ACTION_DRAFT_REPLY,
     CFG_TARGET_FOLDER,
     FOLDER_INBOX,
-    MIME_TEXT_HTML,
-    MIME_TEXT_PLAIN,
 )
+from src.email.draft_reply_handler import DraftReplyHandler
+from src.email.email_body_viewer import EmailBodyViewer
 from src.email.imap_client import EnhancedImapClient
 from src.email.smtp_client import SmtpClient
-from src.interaction.scheduler_prompts import SchedulerChoice, scheduler_ask, send_output
+from src.interaction.scheduler_prompts import send_output
 from src.processors.action_result import ActionResult
-from src.processors.draft_composer import DraftComposer, DraftContext
-from src.processors.draft_email_builder import DraftEmailBuilder, DraftEmailContent
-from src.processors.greeting_builder import GreetingBuilder
 from src.processors.rtm_todo import RtmTodoCreator
-from src.processors.salutation_manager import SalutationManager
+from src.search.folder_picker import folder_search_loop
 from src.search.search_cache import SearchCache
 
 logger = logging.getLogger(__name__)
-
-_MAX_FOLDER_MATCHES = 5
 
 
 class EmailActionProcessor:
@@ -168,42 +162,11 @@ class EmailActionProcessor:
     def _action_draft_reply(self, email_msg: object) -> None:
         """Draft a reply to the email using AI."""
         from_addr_raw = getattr(email_msg, "from_address", "") or ""
-        _, from_addr = parseaddr(from_addr_raw)
-        from_name = from_addr_raw.replace(f"<{from_addr}>", "").strip().strip('"')
         subject = getattr(email_msg, "subject", "") or ""
-        body = self._get_body_excerpt(email_msg, max_chars=2000)
+        body = EmailBodyViewer.get_body_excerpt(email_msg, max_chars=2000)
 
-        sal_mgr = SalutationManager(self._cache, self._config, self._openai_client, self._client)
-        salutation_info = sal_mgr.resolve_salutation(from_addr)
-
-        greeting = GreetingBuilder.build_greeting(salutation_info)
-
-        context = DraftContext(
-            original_subject=subject,
-            original_body=body,
-            original_from_address=from_addr,
-            original_from_name=from_name,
-            greeting=greeting,
-        )
-        composer = DraftComposer(self._openai_client)
-        final_body = composer.compose(context)
-
-        if not final_body:
-            send_output("  Draft cancelled.")
-            return
-
-        builder = DraftEmailBuilder(self._config, self._client)
-        content = DraftEmailContent(
-            to_address=from_addr,
-            subject=DraftEmailBuilder.make_reply_subject(subject),
-            greeting=greeting,
-            body_text=final_body,
-            footer_html=DraftEmailBuilder.load_footer_html(),
-            original_from=from_addr_raw,
-            original_subject=subject,
-            original_body=body,
-        )
-        builder.build_and_save(content)
+        handler = DraftReplyHandler(self._client, self._config, self._openai_client, self._cache)
+        handler.draft_reply(from_addr_raw, subject, body)
 
     # ------------------------------------------------------------------
     # Folder search helpers
@@ -226,49 +189,7 @@ class EmailActionProcessor:
             send_output("  No folders found.")
             return None
 
-        return self._folder_search_loop(all_folders)
-
-    def _folder_search_loop(self, all_folders: list[str]) -> str | None:
-        """Prompt for a partial folder name, filter, and let the user pick."""
-        while True:
-            query = scheduler_ask(
-                "Type part of the folder name (or 'cancel' / 'abort'):", default="",
-            )
-            query = query.strip()
-            if not query or query.lower() == "cancel":
-                return None
-            if query.lower() == "abort":
-                return "_abort_"
-
-            matches = [
-                f for f in all_folders if query.lower() in f.lower()
-            ]
-
-            if not matches:
-                send_output(f"  No folders matching '{query}'. Try again.")
-                continue
-
-            if len(matches) > _MAX_FOLDER_MATCHES:
-                send_output(
-                    f"  {len(matches)} matches — showing first {_MAX_FOLDER_MATCHES}. "
-                    "Refine your search for better results.",
-                )
-                matches = matches[:_MAX_FOLDER_MATCHES]
-
-            result = self._pick_from_matches(matches)
-            if result is not None:
-                return result
-
-    @staticmethod
-    def _pick_from_matches(matches: list[str]) -> str | None:
-        """Show matched folders and let the user pick one or search again."""
-        choices = [(m, m) for m in matches] + [("Search again", "search_again")]
-        result = SchedulerChoice("Select folder:", choices, abort=True).choose()
-        if result == "abort":
-            return "_abort_"
-        if result == "search_again":
-            return None
-        return result
+        return folder_search_loop(all_folders, allow_abort=True)
 
     # ------------------------------------------------------------------
     # Helpers
@@ -277,15 +198,4 @@ class EmailActionProcessor:
     @staticmethod
     def _get_body_excerpt(email_msg: object, max_chars: int = 800) -> str:
         """Extract a plain-text excerpt from the email body."""
-        body = None
-        if hasattr(email_msg, "get_body"):
-            body = email_msg.get_body(MIME_TEXT_PLAIN)
-            if not body:
-                import re
-
-                html = email_msg.get_body(MIME_TEXT_HTML)
-                if html:
-                    body = re.sub(r"<[^>]+>", "", html).strip()
-        if not body:
-            return "(no body content)"
-        return str(body)[:max_chars]
+        return EmailBodyViewer.get_body_excerpt(email_msg, max_chars=max_chars)

@@ -82,6 +82,8 @@ def main() -> None:
                         help='Interactively process INBOX emails one by one')
     parser.add_argument('--unread-only', action='store_true',
                         help='Only process unread emails (use with --inbox-zero)')
+    parser.add_argument('--browse', action='store_true',
+                        help='Browse IMAP folders and emails interactively')
     parser.add_argument('--search', nargs='?', const='__wizard__', metavar='TERM',
                         help='Search emails. Prefix with to:/from:/s: for field-specific. No arg = wizard.')
     parser.add_argument('--body', metavar='TERM', help='Search body text (use with --search)')
@@ -239,6 +241,10 @@ def main() -> None:
             processor.list_workflows()
         else:
             processor.run_workflow(args.workflow)
+        return
+
+    if args.browse:
+        processor.browse()
         return
 
     if args.inbox_zero:
