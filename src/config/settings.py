@@ -451,6 +451,11 @@ class ConfigManager:
             logger.error(f"Failed to save config: {e}")
 
     @property
+    def download_folder(self) -> Path:
+        """Get the folder path for downloading email attachments."""
+        return Path(self._config.get("download_folder", "downloads"))
+
+    @property
     def trash_folder(self) -> str:
         """Get the IMAP trash folder path."""
         return self._config.get("trash_folder", FOLDER_TRASH)

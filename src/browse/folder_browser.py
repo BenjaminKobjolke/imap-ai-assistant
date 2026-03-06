@@ -7,6 +7,7 @@ import logging
 from src.ai.openai_client import OpenAIClient
 from src.config.settings import ConfigManager
 from src.email.draft_reply_handler import DraftReplyHandler
+from src.email.email_actions import email_action_loop
 from src.email.email_body_viewer import EmailBodyViewer
 from src.email.imap_client import EnhancedImapClient
 from src.interaction.scheduler_prompts import SchedulerChoice, send_output
@@ -170,20 +171,13 @@ class FolderBrowser:
                 self._email_actions(folder, msg_id, email_msg)
 
     def _email_actions(self, folder: str, msg_id: object, email_msg: object) -> None:
-        """Show body or draft reply for a selected email."""
+        """Show body, attachments, or draft reply for a selected email."""
         while True:
-            action = SchedulerChoice(
-                "What would you like to do?",
-                [
-                    ("Show body", "show_body"),
-                    ("Draft reply", "draft_reply"),
-                    ("Back", "back"),
-                ],
-            ).choose()
-
-            if action == "show_body":
-                EmailBodyViewer.show_body(self._client, folder, str(msg_id))
-            elif action == "draft_reply":
+            unhandled = email_action_loop(
+                self._client, self._config, folder, str(msg_id),
+                extra_actions=[("Draft reply", "draft_reply")],
+            )
+            if unhandled == "draft_reply":
                 from_addr_raw = getattr(email_msg, "from_address", "") or ""
                 subject = getattr(email_msg, "subject", "") or ""
                 body = EmailBodyViewer.get_body_excerpt(email_msg, max_chars=2000)
@@ -193,5 +187,5 @@ class FolderBrowser:
                     self._client, self._config, self._openai, cache,
                 )
                 handler.draft_reply(from_addr_raw, subject, body)
-            elif action in ("back", "abort"):
+            else:
                 return

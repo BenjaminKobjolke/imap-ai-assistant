@@ -14,7 +14,6 @@ from src.browse.folder_browser import (
 from src.config.settings import ConfigManager
 from src.email.imap_client import EnhancedImapClient
 
-
 # ---------------------------------------------------------------------------
 # Folder hierarchy helpers
 # ---------------------------------------------------------------------------
@@ -165,21 +164,14 @@ class TestBrowseEmails:
 class TestEmailActions:
     """Tests for email action menu."""
 
-    @patch("src.browse.folder_browser.EmailBodyViewer")
-    @patch("src.browse.folder_browser.SchedulerChoice")
-    @patch("src.browse.folder_browser.send_output")
+    @patch("src.browse.folder_browser.email_action_loop")
     def test_show_body_action(
         self,
-        _mock_output: MagicMock,
-        mock_choice_cls: MagicMock,
-        mock_viewer: MagicMock,
+        mock_action_loop: MagicMock,
     ) -> None:
-        """Selecting 'Show body' calls EmailBodyViewer.show_body."""
+        """Selecting 'show_body' is handled by email_action_loop (returns None = back)."""
         browser = _browser()
-
-        mock_choice = MagicMock()
-        mock_choice.choose.side_effect = ["show_body", "back"]
-        mock_choice_cls.return_value = mock_choice
+        mock_action_loop.return_value = None
 
         msg = MagicMock()
         msg.from_address = "bob@example.com"
@@ -187,28 +179,27 @@ class TestEmailActions:
 
         browser._email_actions("INBOX", 42, msg)
 
-        mock_viewer.show_body.assert_called_once_with(browser._client, "INBOX", "42")
+        mock_action_loop.assert_called_once_with(
+            browser._client, browser._config, "INBOX", "42",
+            extra_actions=[("Draft reply", "draft_reply")],
+        )
 
     @patch("src.browse.folder_browser.DraftReplyHandler")
     @patch("src.browse.folder_browser.SearchCache")
     @patch("src.browse.folder_browser.EmailBodyViewer")
-    @patch("src.browse.folder_browser.SchedulerChoice")
-    @patch("src.browse.folder_browser.send_output")
+    @patch("src.browse.folder_browser.email_action_loop")
     def test_draft_reply_action(
         self,
-        _mock_output: MagicMock,
-        mock_choice_cls: MagicMock,
+        mock_action_loop: MagicMock,
         mock_viewer: MagicMock,
         mock_cache_cls: MagicMock,
         mock_handler_cls: MagicMock,
     ) -> None:
-        """Selecting 'Draft reply' creates a DraftReplyHandler and calls draft_reply."""
+        """When email_action_loop returns 'draft_reply', DraftReplyHandler is called."""
         browser = _browser()
 
-        mock_choice = MagicMock()
-        mock_choice.choose.side_effect = ["draft_reply", "back"]
-        mock_choice_cls.return_value = mock_choice
-
+        # First call returns "draft_reply", second call returns None (back)
+        mock_action_loop.side_effect = ["draft_reply", None]
         mock_viewer.get_body_excerpt.return_value = "Body text"
 
         msg = MagicMock()
@@ -221,19 +212,14 @@ class TestEmailActions:
             "bob@example.com", "Test", "Body text",
         )
 
-    @patch("src.browse.folder_browser.SchedulerChoice")
-    @patch("src.browse.folder_browser.send_output")
+    @patch("src.browse.folder_browser.email_action_loop")
     def test_back_action(
         self,
-        _mock_output: MagicMock,
-        mock_choice_cls: MagicMock,
+        mock_action_loop: MagicMock,
     ) -> None:
-        """Selecting 'Back' returns immediately."""
+        """When email_action_loop returns None, _email_actions returns."""
         browser = _browser()
-
-        mock_choice = MagicMock()
-        mock_choice.choose.return_value = "back"
-        mock_choice_cls.return_value = mock_choice
+        mock_action_loop.return_value = None
 
         msg = MagicMock()
         browser._email_actions("INBOX", 1, msg)
