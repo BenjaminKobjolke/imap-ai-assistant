@@ -206,7 +206,7 @@ class CommandExecutor:
     )
     def todays_meetings(self, params: dict[str, Any]) -> None:
         """Execute today's meetings listing."""
-        self._processor.todays_meetings(interactive=False)
+        self._processor.todays_meetings()
 
     @ai_command(
         name="meetings",
@@ -222,7 +222,7 @@ class CommandExecutor:
     )
     def meetings(self, params: dict[str, Any]) -> None:
         """List meetings for a specific date."""
-        self._processor.meetings(date_str=params["date_str"], interactive=False)
+        self._processor.meetings(date_str=params["date_str"])
 
     @ai_command(
         name="meeting_detail",
@@ -565,8 +565,14 @@ class ChatHandler:
         send_output(f"\nAI: Executing {command.command_name}...")
 
         start_output_capture(silent=True)
+        root_logger = logging.getLogger()
+        original_log_level = root_logger.level
+        root_logger.setLevel(logging.WARNING)
         try:
-            self._executor.execute(command.command_name, command.parameters)
+            try:
+                self._executor.execute(command.command_name, command.parameters)
+            finally:
+                root_logger.setLevel(original_log_level)
         except ExitChatError:
             stop_output_capture()
             send_output("Goodbye!")

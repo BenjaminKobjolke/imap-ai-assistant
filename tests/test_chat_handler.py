@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import date
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -149,9 +150,9 @@ class TestCommandExecutor:
     def test_execute_todays_meetings(
         self, executor: CommandExecutor, processor: MagicMock,
     ) -> None:
-        """Verify todays_meetings is called with interactive=False."""
+        """Verify todays_meetings is called without arguments."""
         executor.execute("todays_meetings", {})
-        processor.todays_meetings.assert_called_once_with(interactive=False)
+        processor.todays_meetings.assert_called_once_with()
 
     def test_execute_inbox_zero_default(
         self, executor: CommandExecutor, processor: MagicMock,
@@ -256,9 +257,9 @@ class TestCommandExecutor:
     def test_execute_meetings(
         self, executor: CommandExecutor, processor: MagicMock,
     ) -> None:
-        """Verify meetings passes date_str and interactive=False to processor."""
+        """Verify meetings passes date_str to processor."""
         executor.execute("meetings", {"date_str": "tomorrow"})
-        processor.meetings.assert_called_once_with(date_str="tomorrow", interactive=False)
+        processor.meetings.assert_called_once_with(date_str="tomorrow")
 
     def test_execute_meeting_detail(
         self, executor: CommandExecutor, processor: MagicMock,
@@ -666,6 +667,75 @@ class TestChatHandler:
         assert any(
             "goodbye" in str(call).lower() for call in mock_output.call_args_list
         )
+
+
+# ---------------------------------------------------------------------------
+# Log suppression during command execution tests
+# ---------------------------------------------------------------------------
+
+class TestLogSuppression:
+    """Tests for INFO log suppression during command execution."""
+
+    @patch("src.ai.chat_handler.stop_output_capture", return_value="some output")
+    @patch("src.ai.chat_handler.start_output_capture")
+    @patch("src.ai.chat_handler.send_output")
+    def test_execute_command_suppresses_info_logs(
+        self,
+        mock_output: MagicMock,
+        mock_start: MagicMock,
+        mock_stop: MagicMock,
+        handler: ChatHandler,
+        openai_client: MagicMock,
+        processor: MagicMock,
+    ) -> None:
+        """Verify root logger level is raised to WARNING during command execution."""
+        root_logger = logging.getLogger()
+        root_logger.setLevel(logging.INFO)
+
+        captured_level: int | None = None
+
+        def capture_level() -> None:
+            nonlocal captured_level
+            captured_level = root_logger.level
+
+        processor.todays_meetings.side_effect = capture_level
+        openai_client.ai_chat_interpret_output.return_value = "interpreted"
+
+        command = ValidatedCommand(
+            command_name="todays_meetings",
+            parameters={},
+            summary="List meetings",
+        )
+        handler._execute_command(command, "show meetings")
+
+        assert captured_level == logging.WARNING
+        assert root_logger.level == logging.INFO
+
+    @patch("src.ai.chat_handler.stop_output_capture", return_value="")
+    @patch("src.ai.chat_handler.start_output_capture")
+    @patch("src.ai.chat_handler.send_output")
+    def test_execute_command_restores_log_level_on_error(
+        self,
+        mock_output: MagicMock,
+        mock_start: MagicMock,
+        mock_stop: MagicMock,
+        handler: ChatHandler,
+        processor: MagicMock,
+    ) -> None:
+        """Verify root log level is restored even when command raises."""
+        root_logger = logging.getLogger()
+        root_logger.setLevel(logging.INFO)
+
+        processor.todays_meetings.side_effect = RuntimeError("boom")
+
+        command = ValidatedCommand(
+            command_name="todays_meetings",
+            parameters={},
+            summary="List meetings",
+        )
+        handler._execute_command(command)
+
+        assert root_logger.level == logging.INFO
 
 
 # ---------------------------------------------------------------------------
