@@ -1,4 +1,8 @@
-"""Service class owning all meeting-related operations."""
+"""Service classes for meeting-related operations.
+
+Base class holds shared logic; Interactive and AI child classes differ
+only in whether the meeting list prompts the user for detail selection.
+"""
 
 from __future__ import annotations
 
@@ -12,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 class MeetingService:
-    """Encapsulates meeting functionality, following the CalendarSetup pattern."""
+    """Base class for meeting operations — shared helpers live here."""
 
     def __init__(self, config: ConfigManager) -> None:
         self.config = config
@@ -39,46 +43,13 @@ class MeetingService:
             logger.info("Google Calendar not available — showing IMAP meetings only")
             return None
 
-    def todays_meetings(self, *, interactive: bool = True) -> None:
-        """List today's meetings from the meetings folder and Google Calendar."""
-        client = self._connect_main_account()
-        if not client:
-            return
+    def todays_meetings(self) -> None:
+        """List today's meetings. Must be implemented by child classes."""
+        raise NotImplementedError
 
-        gcal_client = self._create_gcal_client()
-
-        try:
-            MeetingCleanup.list_todays_meetings(
-                client, self.config, gcal_client=gcal_client, interactive=interactive,
-            )
-        except Exception as e:
-            logger.error(f"Error listing today's meetings: {e}")
-        finally:
-            client.disconnect()
-
-    def meetings(self, date_str: str, *, interactive: bool = True) -> None:
-        """List meetings for a given date string."""
-        try:
-            target_date = MeetingCleanup._parse_date(date_str)
-        except ValueError as e:
-            logger.error(str(e))
-            return
-
-        client = self._connect_main_account()
-        if not client:
-            return
-
-        gcal_client = self._create_gcal_client()
-
-        try:
-            MeetingCleanup.list_todays_meetings(
-                client, self.config, target_date=target_date, gcal_client=gcal_client,
-                interactive=interactive,
-            )
-        except Exception as e:
-            logger.error(f"Error listing meetings: {e}")
-        finally:
-            client.disconnect()
+    def meetings(self, date_str: str) -> None:
+        """List meetings for a given date. Must be implemented by child classes."""
+        raise NotImplementedError
 
     def todays_meeting_detail(self, index: int) -> None:
         """Show details for a specific today's meeting by index."""
@@ -130,3 +101,70 @@ class MeetingService:
             logger.error(f"Error processing invites: {e}")
         finally:
             client.disconnect()
+
+    # -- internal helpers used by child classes ----------------------------------
+
+    def _list_todays_meetings(self, *, interactive: bool) -> None:
+        """Shared implementation for todays_meetings."""
+        client = self._connect_main_account()
+        if not client:
+            return
+
+        gcal_client = self._create_gcal_client()
+
+        try:
+            MeetingCleanup.list_todays_meetings(
+                client, self.config, gcal_client=gcal_client, interactive=interactive,
+            )
+        except Exception as e:
+            logger.error(f"Error listing today's meetings: {e}")
+        finally:
+            client.disconnect()
+
+    def _list_meetings(self, date_str: str, *, interactive: bool) -> None:
+        """Shared implementation for meetings."""
+        try:
+            target_date = MeetingCleanup._parse_date(date_str)
+        except ValueError as e:
+            logger.error(str(e))
+            return
+
+        client = self._connect_main_account()
+        if not client:
+            return
+
+        gcal_client = self._create_gcal_client()
+
+        try:
+            MeetingCleanup.list_todays_meetings(
+                client, self.config, target_date=target_date, gcal_client=gcal_client,
+                interactive=interactive,
+            )
+        except Exception as e:
+            logger.error(f"Error listing meetings: {e}")
+        finally:
+            client.disconnect()
+
+
+class MeetingServiceInteractive(MeetingService):
+    """Meeting service with interactive detail prompts."""
+
+    def todays_meetings(self) -> None:
+        """List today's meetings with interactive detail selection."""
+        self._list_todays_meetings(interactive=True)
+
+    def meetings(self, date_str: str) -> None:
+        """List meetings for a date with interactive detail selection."""
+        self._list_meetings(date_str, interactive=True)
+
+
+class MeetingServiceAI(MeetingService):
+    """Meeting service without interactive prompts — safe for AI mode."""
+
+    def todays_meetings(self) -> None:
+        """List today's meetings without interactive prompts."""
+        self._list_todays_meetings(interactive=False)
+
+    def meetings(self, date_str: str) -> None:
+        """List meetings for a date without interactive prompts."""
+        self._list_meetings(date_str, interactive=False)

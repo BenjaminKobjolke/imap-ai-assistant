@@ -44,20 +44,49 @@ def my_new_feature(self, params: dict[str, Any]) -> None:
 
 That's it. The decorator handles all registration automatically.
 
-### Non-interactive requirement
+### Non-interactive requirement — base/child class pattern
 
-AI commands execute under silent output capture. The code path **must not** call `input()`, `scheduler_ask()`, or `scheduler_choose()`. If the underlying feature has an interactive mode, add an `interactive: bool = True` parameter and pass `interactive=False` from the `CommandExecutor` method:
+AI commands execute under silent output capture. The code path **must not** call `input()`, `scheduler_ask()`, or `scheduler_choose()`.
+
+If the underlying feature has interactive behavior, use the **base/child class pattern** instead of a boolean `interactive` flag:
 
 ```python
-# In the processor / service method:
-def my_feature(self, *, interactive: bool = True) -> None:
-    ...  # skip input() prompts when interactive=False
+# Base class — shared logic
+class MyService:
+    def do_thing(self) -> None:
+        raise NotImplementedError
 
-# In CommandExecutor:
-@ai_command(name="my_feature", description="...")
-def my_feature(self, params: dict[str, Any]) -> None:
-    self._processor.my_feature(interactive=False)
+# Interactive variant — used by CLI
+class MyServiceInteractive(MyService):
+    def do_thing(self) -> None:
+        ...  # includes input() prompts, undo dialogs, etc.
+
+# AI variant — safe for AI mode
+class MyServiceAI(MyService):
+    def do_thing(self) -> None:
+        ...  # no interactive prompts, auto-picks defaults
 ```
+
+`EmailProcessor` uses the Interactive variant by default and swaps to the AI variant in `ai_chat()`:
+
+```python
+# In EmailProcessor.__init__:
+self._my_service = MyServiceInteractive(self.config)
+
+# In EmailProcessor.ai_chat():
+saved = self._my_service
+self._my_service = MyServiceAI(self.config)
+try:
+    ...  # run chat
+finally:
+    self._my_service = saved
+```
+
+The `CommandExecutor` method calls `self._processor.do_thing()` with no flags — polymorphism handles the difference.
+
+**Examples in the codebase:**
+- `MeetingService` → `MeetingServiceInteractive` / `MeetingServiceAI` (meeting listing with/without detail prompts)
+- `CalendarService` → `CalendarServiceInteractive` / `CalendarServiceAI` (event creation with/without undo prompt)
 
 The auto-discovery guard test `test_ai_commands_are_non_interactive` in `test_chat_handler.py` will catch violations automatically — any new `@ai_command` that calls an interactive function will fail the test.
 
@@ -113,5 +142,7 @@ Param(name, description, param_type, required=False, enum=None, default=None)
 | `src/ai/ai_command.py` | `@ai_command` decorator and `Param` alias |
 | `src/ai/chat_handler.py` | `CommandExecutor` — add your decorated method here |
 | `src/ai/command_registry.py` | `CommandRegistry` — auto-discovery logic |
-| `src/processors/email_processor.py` | `EmailProcessor` — the actual feature implementation |
-| `src/processors/meeting_service.py` | `MeetingService` — example of extracted service class |
+| `src/processors/email_processor.py` | `EmailProcessor` — thin orchestrator composing services |
+| `src/services/meeting_service.py` | `MeetingService` — base/child class example |
+| `src/services/calendar_service.py` | `CalendarService` — base/child class example |
+| `src/services/email_service.py` | `EmailService` — email I/O operations |

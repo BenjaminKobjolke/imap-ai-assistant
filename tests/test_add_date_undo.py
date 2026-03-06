@@ -5,7 +5,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 from src.calendar.google_calendar_client import GoogleCalendarClient
-from src.processors.calendar_setup import CalendarSetup
+from src.services.calendar_service import CalendarServiceInteractive
 
 
 class TestDeleteEventById:
@@ -47,16 +47,16 @@ class TestDeleteEventById:
 
 
 class TestAddDateUndo:
-    """Tests for the undo prompt after add_date event creation."""
+    """Tests for the undo prompt after add_date event creation (Interactive variant)."""
 
-    def _setup(self) -> tuple[CalendarSetup, MagicMock]:
-        """Create a CalendarSetup with mocked config."""
+    def _setup(self) -> tuple[CalendarServiceInteractive, MagicMock]:
+        """Create a CalendarServiceInteractive with mocked config."""
         mock_config = MagicMock()
         mock_config.add_date_calendar_id = "cal123"
         mock_config.add_date_calendar_name = "My Calendar"
-        return CalendarSetup(mock_config), mock_config
+        return CalendarServiceInteractive(mock_config), mock_config
 
-    @patch("src.processors.calendar_setup.SchedulerChoice")
+    @patch("src.services.calendar_service.SchedulerChoice")
     @patch("src.calendar.google_calendar_client.GoogleCalendarClient.from_config")
     def test_undo_deletes_event(
         self,
@@ -79,7 +79,7 @@ class TestAddDateUndo:
         mock_gcal.delete_event_by_id.assert_called_once_with("evt_abc")
         mock_print.assert_any_call("Event deleted.")
 
-    @patch("src.processors.calendar_setup.SchedulerChoice")
+    @patch("src.services.calendar_service.SchedulerChoice")
     @patch("src.calendar.google_calendar_client.GoogleCalendarClient.from_config")
     def test_keep_does_not_delete(
         self,
@@ -99,7 +99,7 @@ class TestAddDateUndo:
 
         mock_gcal.delete_event_by_id.assert_not_called()
 
-    @patch("src.processors.calendar_setup.SchedulerChoice")
+    @patch("src.services.calendar_service.SchedulerChoice")
     @patch("src.calendar.google_calendar_client.GoogleCalendarClient.from_config")
     def test_undo_failure_prints_error(
         self,

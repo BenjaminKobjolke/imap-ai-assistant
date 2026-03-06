@@ -64,6 +64,7 @@ uv run python test_logger.py
 
 ### Shell & CLI Rules
 - **No compound shell commands** — never chain commands with `&&`, `||`, or `;` (e.g., do NOT use `cd /d "..." && git log`). Run each command as a separate tool call instead.
+- **Never combine `cd` with other commands** — do NOT use `cd path && git status` or similar. Use absolute paths or run `cd` as a separate tool call.
 
 ### Common Rules (All Languages)
 - Use English for all code, comments, and documentation

@@ -1,3 +1,10 @@
+"""Service classes for Google Calendar configuration and event creation.
+
+Renamed from CalendarSetup. Base class holds shared logic; Interactive and AI
+child classes differ in add_date (undo prompt) and _resolve_calendar_query
+(interactive picker vs auto-pick).
+"""
+
 from __future__ import annotations
 
 import logging
@@ -11,11 +18,13 @@ from src.processors.meeting_cleanup import MeetingCleanup
 logger = logging.getLogger(__name__)
 
 
-class CalendarSetup:
-    """Interactive setup wizards and CLI helpers for Google Calendar configuration."""
+class CalendarService:
+    """Base class for calendar operations — shared helpers live here."""
 
     def __init__(self, config: ConfigManager) -> None:
         self.config = config
+
+    # -- Interactive wizard (CLI-only, never called by AI) ----------------------
 
     def setup_meetings(self) -> None:
         """Interactive setup for meeting calendar and conflict-check calendars."""
@@ -154,6 +163,8 @@ class CalendarSetup:
                 return new_id
             print("  Invalid choice. Try again.")
 
+    # -- Non-interactive setters ------------------------------------------------
+
     def set_meeting_calendar(self, calendar_id: str) -> None:
         """Set the Google Calendar ID used for adding events."""
         value = {"name": "", "id": calendar_id}
@@ -221,52 +232,7 @@ class CalendarSetup:
             marker = " <-- active" if cal_id == configured else ""
             print(f"{i:<4} {summary:<40} {cal_id:<50} {primary}{marker}")
 
-    def add_date(self, raw_args: list[str]) -> None:
-        """Create a Google Calendar event from CLI arguments."""
-        parsed = self._parse_add_date_args(raw_args)
-        if parsed is None:
-            return
-
-        title, event_date, start_hour, start_minute, end_hour, end_minute, calendar_query = parsed
-
-        from src.calendar.google_calendar_client import GoogleCalendarClient
-
-        calendar_id = self.config.add_date_calendar_id
-
-        gcal_client = GoogleCalendarClient.from_config(
-            self.config, calendar_id=calendar_id,
-        )
-        if gcal_client is None:
-            logger.error("Failed to authenticate with Google Calendar")
-            return
-
-        if calendar_query:
-            resolved_id = self._resolve_calendar_query(gcal_client, calendar_query)
-            if resolved_id is None:
-                return
-            calendar_id = resolved_id
-            gcal_client.calendar_id = calendar_id
-
-        start_dt = datetime(event_date.year, event_date.month, event_date.day, start_hour, start_minute)
-        end_dt = datetime(event_date.year, event_date.month, event_date.day, end_hour, end_minute)
-
-        event_id = gcal_client.create_event(title, start_dt, end_dt)
-        if event_id:
-            cal_name = self.config.add_date_calendar_name
-            if calendar_query:
-                cal_name = calendar_query
-            date_str = event_date.strftime("%d.%m.%Y")
-            send_output(f"Created: {title} on {date_str} {start_hour:02d}:{start_minute:02d}-{end_hour:02d}:{end_minute:02d} ({cal_name})")
-            undo = SchedulerChoice(
-                "", [("Keep", "keep"), ("Undo (delete event)", "undo")],
-            ).choose()
-            if undo == "undo":
-                if gcal_client.delete_event_by_id(event_id):
-                    send_output("Event deleted.")
-                else:
-                    send_output("Failed to delete event.")
-        else:
-            send_output("Failed to create event.")
+    # -- Shared parse helpers ---------------------------------------------------
 
     def _parse_add_date_args(self, raw_args: list[str]) -> tuple | None:
         """Parse --add-date arguments into (title, date, start_hour, start_minute, end_hour, end_minute, calendar_query)."""
@@ -324,8 +290,88 @@ class CalendarSetup:
 
         return title, event_date, start_hour, start_minute, end_hour, end_minute, calendar_query
 
+    # -- Abstract methods that differ between Interactive and AI -----------------
+
+    def add_date(self, raw_args: list[str]) -> None:
+        """Create a Google Calendar event. Must be implemented by child classes."""
+        raise NotImplementedError
+
     def _resolve_calendar_query(self, gcal_client: object, query: str) -> str | None:
-        """Resolve a partial calendar name to a calendar ID via substring match."""
+        """Resolve a partial calendar name to an ID. Must be implemented by child classes."""
+        raise NotImplementedError
+
+    # -- Shared add_date core ---------------------------------------------------
+
+    def _create_event_core(self, raw_args: list[str]) -> tuple | None:
+        """Parse args, authenticate, resolve calendar, create event.
+
+        Returns (gcal_client, event_id, title, event_date, start_hour, start_minute, end_hour, end_minute, cal_name)
+        or None on failure.
+        """
+        parsed = self._parse_add_date_args(raw_args)
+        if parsed is None:
+            return None
+
+        title, event_date, start_hour, start_minute, end_hour, end_minute, calendar_query = parsed
+
+        from src.calendar.google_calendar_client import GoogleCalendarClient
+
+        calendar_id = self.config.add_date_calendar_id
+
+        gcal_client = GoogleCalendarClient.from_config(
+            self.config, calendar_id=calendar_id,
+        )
+        if gcal_client is None:
+            logger.error("Failed to authenticate with Google Calendar")
+            return None
+
+        if calendar_query:
+            resolved_id = self._resolve_calendar_query(gcal_client, calendar_query)
+            if resolved_id is None:
+                return None
+            calendar_id = resolved_id
+            gcal_client.calendar_id = calendar_id
+
+        start_dt = datetime(event_date.year, event_date.month, event_date.day, start_hour, start_minute)
+        end_dt = datetime(event_date.year, event_date.month, event_date.day, end_hour, end_minute)
+
+        event_id = gcal_client.create_event(title, start_dt, end_dt)
+
+        cal_name = self.config.add_date_calendar_name
+        if calendar_query:
+            cal_name = calendar_query
+
+        if not event_id:
+            send_output("Failed to create event.")
+            return None
+
+        return gcal_client, event_id, title, event_date, start_hour, start_minute, end_hour, end_minute, cal_name
+
+
+class CalendarServiceInteractive(CalendarService):
+    """Calendar service with interactive undo prompt and calendar picker."""
+
+    def add_date(self, raw_args: list[str]) -> None:
+        """Create a Google Calendar event with undo prompt."""
+        result = self._create_event_core(raw_args)
+        if result is None:
+            return
+
+        gcal_client, event_id, title, event_date, start_hour, start_minute, end_hour, end_minute, cal_name = result
+
+        date_str = event_date.strftime("%d.%m.%Y")
+        send_output(f"Created: {title} on {date_str} {start_hour:02d}:{start_minute:02d}-{end_hour:02d}:{end_minute:02d} ({cal_name})")
+        undo = SchedulerChoice(
+            "", [("Keep", "keep"), ("Undo (delete event)", "undo")],
+        ).choose()
+        if undo == "undo":
+            if gcal_client.delete_event_by_id(event_id):
+                send_output("Event deleted.")
+            else:
+                send_output("Failed to delete event.")
+
+    def _resolve_calendar_query(self, gcal_client: object, query: str) -> str | None:
+        """Resolve a partial calendar name with interactive picker for ambiguous matches."""
         calendars = gcal_client.list_calendars()
         query_lower = query.lower()
         matches = [
@@ -353,3 +399,38 @@ class CalendarSetup:
                 selected = matches[int(choice) - 1]
                 return selected.get("id", "")
             print("  Invalid choice. Try again.")
+
+
+class CalendarServiceAI(CalendarService):
+    """Calendar service without interactive prompts — safe for AI mode."""
+
+    def add_date(self, raw_args: list[str]) -> None:
+        """Create a Google Calendar event without undo prompt."""
+        result = self._create_event_core(raw_args)
+        if result is None:
+            return
+
+        _gcal_client, _event_id, title, event_date, start_hour, start_minute, end_hour, end_minute, cal_name = result
+
+        date_str = event_date.strftime("%d.%m.%Y")
+        send_output(f"Created: {title} on {date_str} {start_hour:02d}:{start_minute:02d}-{end_hour:02d}:{end_minute:02d} ({cal_name})")
+
+    def _resolve_calendar_query(self, gcal_client: object, query: str) -> str | None:
+        """Resolve a partial calendar name by auto-picking the first match."""
+        calendars = gcal_client.list_calendars()
+        query_lower = query.lower()
+        matches = [
+            c for c in calendars
+            if query_lower in c.get("summary", "").lower()
+        ]
+
+        if not matches:
+            send_output(f"No calendar matching '{query}' found.")
+            return None
+
+        cal = matches[0]
+        if len(matches) > 1:
+            send_output(f"Multiple calendars match '{query}', using first: {cal.get('summary', '')}")
+        else:
+            send_output(f"Calendar: {cal.get('summary', '')} ({cal.get('id', '')})")
+        return cal.get("id", "")

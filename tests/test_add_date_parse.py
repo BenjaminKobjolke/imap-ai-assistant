@@ -5,16 +5,16 @@ from __future__ import annotations
 from datetime import date
 from unittest.mock import MagicMock, patch
 
-from src.processors.calendar_setup import CalendarSetup
+from src.services.calendar_service import CalendarServiceInteractive
 
 
-def _make_setup() -> CalendarSetup:
-    """Create a CalendarSetup with a minimal mock config."""
-    return CalendarSetup(MagicMock())
+def _make_setup() -> CalendarServiceInteractive:
+    """Create a CalendarServiceInteractive with a minimal mock config."""
+    return CalendarServiceInteractive(MagicMock())
 
 
 class TestParseAddDateArgs:
-    """Unit tests for CalendarSetup._parse_add_date_args."""
+    """Unit tests for CalendarService._parse_add_date_args."""
 
     def test_bare_hour(self) -> None:
         """Bare hour '14' → start=14:00, end=15:00."""
@@ -62,7 +62,7 @@ class TestParseAddDateArgs:
         assert (start_h, start_m) == (9, 0)
         assert (end_h, end_m) == (17, 30)
 
-    @patch("src.processors.calendar_setup.datetime")
+    @patch("src.services.calendar_service.datetime")
     def test_no_time_defaults(self, mock_dt: MagicMock) -> None:
         """No time argument defaults to current hour with 0 minutes."""
         mock_now = MagicMock()
