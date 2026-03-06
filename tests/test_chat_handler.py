@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+from datetime import date
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -147,9 +149,9 @@ class TestCommandExecutor:
     def test_execute_todays_meetings(
         self, executor: CommandExecutor, processor: MagicMock,
     ) -> None:
-        """Verify todays_meetings is called without parameters."""
+        """Verify todays_meetings is called with interactive=False."""
         executor.execute("todays_meetings", {})
-        processor.todays_meetings.assert_called_once()
+        processor.todays_meetings.assert_called_once_with(interactive=False)
 
     def test_execute_inbox_zero_default(
         self, executor: CommandExecutor, processor: MagicMock,
@@ -254,9 +256,9 @@ class TestCommandExecutor:
     def test_execute_meetings(
         self, executor: CommandExecutor, processor: MagicMock,
     ) -> None:
-        """Verify meetings passes date_str to processor."""
+        """Verify meetings passes date_str and interactive=False to processor."""
         executor.execute("meetings", {"date_str": "tomorrow"})
-        processor.meetings.assert_called_once_with(date_str="tomorrow")
+        processor.meetings.assert_called_once_with(date_str="tomorrow", interactive=False)
 
     def test_execute_meeting_detail(
         self, executor: CommandExecutor, processor: MagicMock,
@@ -465,7 +467,7 @@ class TestChatHandler:
         handler: ChatHandler,
         processor: MagicMock,
     ) -> None:
-        """Verify successful command execution uses capture API."""
+        """Verify successful command execution uses silent capture API."""
         command = ValidatedCommand(
             command_name="todays_meetings",
             parameters={},
@@ -473,7 +475,7 @@ class TestChatHandler:
         )
         handler._execute_command(command)
         processor.todays_meetings.assert_called_once()
-        mock_start.assert_called_once()
+        mock_start.assert_called_once_with(silent=True)
         mock_stop.assert_called_once()
 
     @patch("src.ai.chat_handler.stop_output_capture", return_value="")
@@ -763,3 +765,285 @@ class TestOutputCapture:
         _send("no-op")
         result = stop_output_capture()
         assert result == ""
+
+    def test_silent_capture_suppresses_print(self) -> None:
+        """Verify silent capture captures text without printing."""
+        from src.interaction.scheduler_prompts import (
+            send_output as _send,
+        )
+        from src.interaction.scheduler_prompts import (
+            start_output_capture,
+            stop_output_capture,
+        )
+
+        with (
+            patch("src.interaction.scheduler_prompts.is_interactive", return_value=False),
+            patch("builtins.print") as mock_print,
+        ):
+            start_output_capture(silent=True)
+            _send("hidden message")
+            result = stop_output_capture()
+
+        assert result == "hidden message"
+        mock_print.assert_not_called()
+
+    def test_non_silent_capture_still_prints(self) -> None:
+        """Verify non-silent capture captures text AND prints."""
+        from src.interaction.scheduler_prompts import (
+            send_output as _send,
+        )
+        from src.interaction.scheduler_prompts import (
+            start_output_capture,
+            stop_output_capture,
+        )
+
+        with (
+            patch("src.interaction.scheduler_prompts.is_interactive", return_value=False),
+            patch("builtins.print") as mock_print,
+        ):
+            start_output_capture(silent=False)
+            _send("visible message")
+            result = stop_output_capture()
+
+        assert result == "visible message"
+        mock_print.assert_called_once_with("visible message")
+
+
+# ---------------------------------------------------------------------------
+# Phase 3: Interpret output tests
+# ---------------------------------------------------------------------------
+
+class TestPhase3InterpretOutput:
+    """Tests for Phase 3 output interpretation in ChatHandler."""
+
+    @patch("src.ai.chat_handler.stop_output_capture", return_value="Meeting 1: 08:00 Standup\nMeeting 2: 14:00 Review")
+    @patch("src.ai.chat_handler.start_output_capture")
+    @patch("src.ai.chat_handler.send_output")
+    def test_phase3_calls_interpret_when_output_exists(
+        self,
+        mock_output: MagicMock,
+        mock_start: MagicMock,
+        mock_stop: MagicMock,
+        handler: ChatHandler,
+        openai_client: MagicMock,
+        processor: MagicMock,
+    ) -> None:
+        """Verify Phase 3 calls ai_chat_interpret_output when there is captured output."""
+        openai_client.ai_chat_interpret_output.return_value = "You have 2 meetings today."
+        command = ValidatedCommand(
+            command_name="todays_meetings",
+            parameters={},
+            summary="List meetings",
+        )
+        handler._execute_command(command, "what meetings do I have today")
+        openai_client.ai_chat_interpret_output.assert_called_once_with(
+            user_question="what meetings do I have today",
+            command_output="Meeting 1: 08:00 Standup\nMeeting 2: 14:00 Review",
+        )
+        # The interpretation should be shown to the user
+        assert any(
+            "You have 2 meetings today" in str(call)
+            for call in mock_output.call_args_list
+        )
+
+    @patch("src.ai.chat_handler.stop_output_capture", return_value="")
+    @patch("src.ai.chat_handler.start_output_capture")
+    @patch("src.ai.chat_handler.send_output")
+    def test_phase3_skipped_when_output_empty(
+        self,
+        mock_output: MagicMock,
+        mock_start: MagicMock,
+        mock_stop: MagicMock,
+        handler: ChatHandler,
+        openai_client: MagicMock,
+        processor: MagicMock,
+    ) -> None:
+        """Verify Phase 3 is skipped when captured output is empty."""
+        command = ValidatedCommand(
+            command_name="todays_meetings",
+            parameters={},
+            summary="List meetings",
+        )
+        handler._execute_command(command, "show meetings")
+        openai_client.ai_chat_interpret_output.assert_not_called()
+        # Should show fallback "Done!" message
+        assert any(
+            "Done!" in str(call)
+            for call in mock_output.call_args_list
+        )
+
+    @patch("src.ai.chat_handler.stop_output_capture", return_value="Meeting 1: 08:00 Standup")
+    @patch("src.ai.chat_handler.start_output_capture")
+    @patch("src.ai.chat_handler.send_output")
+    def test_phase3_skipped_when_no_original_question(
+        self,
+        mock_output: MagicMock,
+        mock_start: MagicMock,
+        mock_stop: MagicMock,
+        handler: ChatHandler,
+        openai_client: MagicMock,
+        processor: MagicMock,
+    ) -> None:
+        """Verify Phase 3 is skipped when no original_question is provided."""
+        command = ValidatedCommand(
+            command_name="todays_meetings",
+            parameters={},
+            summary="List meetings",
+        )
+        handler._execute_command(command)
+        openai_client.ai_chat_interpret_output.assert_not_called()
+        # Raw output should be shown as fallback
+        assert any(
+            "Meeting 1: 08:00 Standup" in str(call)
+            for call in mock_output.call_args_list
+        )
+
+    @patch("src.ai.chat_handler.stop_output_capture", return_value="Meeting 1: 08:00 Standup")
+    @patch("src.ai.chat_handler.start_output_capture")
+    @patch("src.ai.chat_handler.send_output")
+    def test_phase3_fallback_on_interpretation_failure(
+        self,
+        mock_output: MagicMock,
+        mock_start: MagicMock,
+        mock_stop: MagicMock,
+        handler: ChatHandler,
+        openai_client: MagicMock,
+        processor: MagicMock,
+    ) -> None:
+        """Verify fallback to raw output when interpretation returns None."""
+        openai_client.ai_chat_interpret_output.return_value = None
+        command = ValidatedCommand(
+            command_name="todays_meetings",
+            parameters={},
+            summary="List meetings",
+        )
+        handler._execute_command(command, "show meetings")
+        # Should fall back to raw output + Done!
+        assert any(
+            "Meeting 1: 08:00 Standup" in str(call)
+            for call in mock_output.call_args_list
+        )
+        assert any(
+            "Done!" in str(call)
+            for call in mock_output.call_args_list
+        )
+
+    @patch("src.ai.chat_handler.stop_output_capture", return_value="Meeting 1: 08:00 Standup")
+    @patch("src.ai.chat_handler.start_output_capture")
+    @patch("src.ai.chat_handler.send_output")
+    def test_phase3_interpretation_added_to_history(
+        self,
+        mock_output: MagicMock,
+        mock_start: MagicMock,
+        mock_stop: MagicMock,
+        handler: ChatHandler,
+        openai_client: MagicMock,
+        processor: MagicMock,
+    ) -> None:
+        """Verify interpretation is added to conversation history."""
+        openai_client.ai_chat_interpret_output.return_value = "You have 1 meeting."
+        handler._initialize_session()
+        handler._session.add_message("user", "what meetings")
+        command = ValidatedCommand(
+            command_name="todays_meetings",
+            parameters={},
+            summary="List meetings",
+        )
+        handler._execute_command(command, "what meetings")
+        assistant_msgs = [m for m in handler._session.history if m.role == "assistant"]
+        # Should have both the result summary and the interpretation
+        assert len(assistant_msgs) >= 2
+        assert any("You have 1 meeting." in m.content for m in assistant_msgs)
+
+
+# ---------------------------------------------------------------------------
+# ChatConversationLogger tests
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Guard test: no AI command may call interactive functions
+# ---------------------------------------------------------------------------
+
+# Commands that are inherently interactive or special — excluded from the guard
+_INTERACTIVE_COMMANDS = {"exit", "inbox_zero"}
+
+# Minimal dummy values by param type for auto-generating valid params
+_DUMMY_VALUES: dict[str, object] = {"string": "test", "integer": 1, "boolean": False}
+
+
+class TestAiCommandsNonInteractive:
+    """Guard test ensuring AI commands never call interactive functions."""
+
+    def test_ai_commands_are_non_interactive(
+        self,
+        registry: CommandRegistry,
+        executor: CommandExecutor,
+        processor: MagicMock,
+    ) -> None:
+        """Every AI command (except explicitly interactive ones) must not call input/ask/choose."""
+        for cmd in registry.all_commands():
+            if cmd.name in _INTERACTIVE_COMMANDS:
+                continue
+            # Build minimal params from CommandDefinition.parameters
+            params: dict[str, object] = {}
+            for p in cmd.parameters:
+                if p.required:
+                    params[p.name] = _DUMMY_VALUES.get(p.param_type, "test")
+            with (
+                patch("builtins.input", side_effect=AssertionError(f"{cmd.name} called input()")),
+                patch("src.ai.chat_handler.scheduler_ask", side_effect=AssertionError(f"{cmd.name} called scheduler_ask")),
+                patch("src.ai.chat_handler.scheduler_choose", side_effect=AssertionError(f"{cmd.name} called scheduler_choose")),
+            ):
+                executor.execute(cmd.name, params)  # should NOT trigger any interactive call
+
+
+# ---------------------------------------------------------------------------
+# ChatConversationLogger tests
+# ---------------------------------------------------------------------------
+
+class TestChatConversationLogger:
+    """Tests for ChatConversationLogger."""
+
+    def test_creates_log_file_with_correct_name(self, tmp_path: Path) -> None:
+        """First session of the day produces _01 suffix."""
+        from src.logging.chat_conversation_logger import ChatConversationLogger
+
+        conv_logger = ChatConversationLogger(str(tmp_path))
+        today = date.today().strftime("%Y%m%d")
+        assert conv_logger.log_path.name == f"{today}_chat_01.log"
+
+    def test_increments_sequence_number(self, tmp_path: Path) -> None:
+        """Second session of the day produces _02 suffix."""
+        from src.logging.chat_conversation_logger import ChatConversationLogger
+
+        today = date.today().strftime("%Y%m%d")
+        (tmp_path / f"{today}_chat_01.log").touch()
+
+        conv_logger = ChatConversationLogger(str(tmp_path))
+        assert conv_logger.log_path.name == f"{today}_chat_02.log"
+
+    def test_log_writes_timestamped_entry(self, tmp_path: Path) -> None:
+        """log() writes a timestamped step entry."""
+        from src.logging.chat_conversation_logger import ChatConversationLogger
+
+        conv_logger = ChatConversationLogger(str(tmp_path))
+        conv_logger.log("USER", "show my meetings")
+
+        content = conv_logger.log_path.read_text(encoding="utf-8").strip()
+        assert "USER: show my meetings" in content
+        assert content.startswith("[")  # starts with timestamp
+
+    def test_log_multiple_steps(self, tmp_path: Path) -> None:
+        """Multiple log calls produce multiple lines."""
+        from src.logging.chat_conversation_logger import ChatConversationLogger
+
+        conv_logger = ChatConversationLogger(str(tmp_path))
+        conv_logger.log("USER", "hello")
+        conv_logger.log("PHASE1_INTENT", '{"command": "todays_meetings"}')
+        conv_logger.log("COMMAND_OUTPUT", "Meeting 1")
+
+        lines = conv_logger.log_path.read_text(encoding="utf-8").strip().splitlines()
+        assert len(lines) == 3
+        assert "USER: hello" in lines[0]
+        assert "PHASE1_INTENT:" in lines[1]
+        assert "COMMAND_OUTPUT: Meeting 1" in lines[2]

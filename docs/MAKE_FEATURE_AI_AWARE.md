@@ -10,7 +10,7 @@ AI commands are defined by decorating a method on `CommandExecutor` in `src/ai/c
 
 ### 1. Ensure the feature exists on `EmailProcessor`
 
-The `CommandExecutor` delegates to `self._processor` (an `EmailProcessor` instance). Your feature must be callable as a method on `EmailProcessor`.
+The `CommandExecutor` delegates to `self._processor` (an `EmailProcessor` instance). Your feature must be callable as a method on `EmailProcessor`. The processor method can delegate to a dedicated service class (e.g. `MeetingService`) — it doesn't have to live directly on `EmailProcessor`.
 
 ```python
 # src/processors/email_processor.py
@@ -43,6 +43,23 @@ def my_new_feature(self, params: dict[str, Any]) -> None:
 ```
 
 That's it. The decorator handles all registration automatically.
+
+### Non-interactive requirement
+
+AI commands execute under silent output capture. The code path **must not** call `input()`, `scheduler_ask()`, or `scheduler_choose()`. If the underlying feature has an interactive mode, add an `interactive: bool = True` parameter and pass `interactive=False` from the `CommandExecutor` method:
+
+```python
+# In the processor / service method:
+def my_feature(self, *, interactive: bool = True) -> None:
+    ...  # skip input() prompts when interactive=False
+
+# In CommandExecutor:
+@ai_command(name="my_feature", description="...")
+def my_feature(self, params: dict[str, Any]) -> None:
+    self._processor.my_feature(interactive=False)
+```
+
+The auto-discovery guard test `test_ai_commands_are_non_interactive` in `test_chat_handler.py` will catch violations automatically — any new `@ai_command` that calls an interactive function will fail the test.
 
 ### 3. Add tests
 
@@ -97,3 +114,4 @@ Param(name, description, param_type, required=False, enum=None, default=None)
 | `src/ai/chat_handler.py` | `CommandExecutor` — add your decorated method here |
 | `src/ai/command_registry.py` | `CommandRegistry` — auto-discovery logic |
 | `src/processors/email_processor.py` | `EmailProcessor` — the actual feature implementation |
+| `src/processors/meeting_service.py` | `MeetingService` — example of extracted service class |

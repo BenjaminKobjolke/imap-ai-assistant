@@ -502,15 +502,17 @@ class MeetingCleanup:
         config,
         target_date: date | None = None,
         gcal_client: object | None = None,
+        *,
+        interactive: bool = True,
     ) -> None:
-        """List meetings for a given date with interactive detail selection."""
+        """List meetings for a given date with optional interactive detail selection."""
         target = target_date or date.today()
         meetings = MeetingCleanup.get_todays_meetings(
             client, config, target_date=target, gcal_client=gcal_client,
         )
         list_meetings(meetings, target)
 
-        if not meetings:
+        if not meetings or not interactive:
             return
 
         max_idx = len(meetings)

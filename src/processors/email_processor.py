@@ -13,7 +13,7 @@ from src.processors.calendar_setup import CalendarSetup
 from src.processors.connection_tester import ConnectionTester
 from src.processors.email_inspector import EmailInspector
 from src.processors.invite_processor import InviteProcessor
-from src.processors.meeting_cleanup import MeetingCleanup
+from src.processors.meeting_service import MeetingService
 from src.processors.response_processor import ResponseProcessor
 from src.processors.tag_rules_wizard import TagRulesWizard
 from src.processors.task_processor import TaskProcessor
@@ -37,6 +37,7 @@ class EmailProcessor:
         self.response_processor = None
         self.task_processor = None
         self._calendar_setup = CalendarSetup(self.config)
+        self._meeting_service = MeetingService(self.config)
         self._tag_wizard = TagRulesWizard(self.config)
         self._initialize_logger()
         self._initialize_clients()
@@ -260,18 +261,7 @@ class EmailProcessor:
 
     def cleanup_meetings(self) -> None:
         """Archive old meeting emails based on their ICS calendar date."""
-        logger.info(f"Starting meeting cleanup (folder: {self.config.meetings_folder}, "
-                     f"age limit: {self.config.meetings_age_limit_hours}h, "
-                     f"archive: {self.config.meetings_archive_folder})")
-        client = self._connect_main_account()
-        if not client:
-            return
-        try:
-            MeetingCleanup.cleanup_old_meetings(client, self.config)
-        except Exception as e:
-            logger.error(f"Error during meeting cleanup: {e}")
-        finally:
-            client.disconnect()
+        self._meeting_service.cleanup_meetings()
 
     # -- Calendar setup delegations --------------------------------------------------
 
@@ -331,24 +321,7 @@ class EmailProcessor:
 
     def process_invites(self) -> None:
         """Interactively process meeting invite emails with Google Calendar."""
-        from src.calendar.google_calendar_client import GoogleCalendarClient
-
-        gcal_client = GoogleCalendarClient.from_config(self.config)
-        if gcal_client is None:
-            logger.error("Failed to authenticate with Google Calendar")
-            return
-
-        account_config = self.config.get_first_account()
-        client = self._connect_main_account()
-        if not client or not account_config:
-            return
-        try:
-            processor = InviteProcessor(client, self.config, gcal_client, account_config)
-            processor.process_invites()
-        except Exception as e:
-            logger.error(f"Error processing invites: {e}")
-        finally:
-            client.disconnect()
+        self._meeting_service.process_invites()
 
     def inbox_zero(self, *, unread_only: bool = False) -> None:
         """Interactively process INBOX emails one by one to achieve inbox zero."""
@@ -381,64 +354,15 @@ class EmailProcessor:
 
     def todays_meeting_detail(self, index: int) -> None:
         """Show details for a specific today's meeting by index."""
-        client = self._connect_main_account()
-        if not client:
-            return
-        try:
-            MeetingCleanup.show_meeting_detail(client, self.config, index)
-        except Exception as e:
-            logger.error(f"Error showing meeting detail: {e}")
-        finally:
-            client.disconnect()
+        self._meeting_service.todays_meeting_detail(index)
 
-    def meetings(self, date_str: str) -> None:
+    def meetings(self, date_str: str, *, interactive: bool = True) -> None:
         """List meetings for a given date string."""
-        from src.calendar.google_calendar_client import GoogleCalendarClient
+        self._meeting_service.meetings(date_str, interactive=interactive)
 
-        try:
-            target_date = MeetingCleanup._parse_date(date_str)
-        except ValueError as e:
-            logger.error(str(e))
-            return
-        client = self._connect_main_account()
-        if not client:
-            return
-
-        gcal_client = None
-        try:
-            gcal_client = GoogleCalendarClient.from_config(self.config)
-        except Exception:
-            logger.info("Google Calendar not available — showing IMAP meetings only")
-
-        try:
-            MeetingCleanup.list_todays_meetings(
-                client, self.config, target_date=target_date, gcal_client=gcal_client,
-            )
-        except Exception as e:
-            logger.error(f"Error listing meetings: {e}")
-        finally:
-            client.disconnect()
-
-    def todays_meetings(self) -> None:
+    def todays_meetings(self, *, interactive: bool = True) -> None:
         """List today's meetings from the meetings folder and Google Calendar."""
-        from src.calendar.google_calendar_client import GoogleCalendarClient
-
-        client = self._connect_main_account()
-        if not client:
-            return
-
-        gcal_client = None
-        try:
-            gcal_client = GoogleCalendarClient.from_config(self.config)
-        except Exception:
-            logger.info("Google Calendar not available — showing IMAP meetings only")
-
-        try:
-            MeetingCleanup.list_todays_meetings(client, self.config, gcal_client=gcal_client)
-        except Exception as e:
-            logger.error(f"Error listing today's meetings: {e}")
-        finally:
-            client.disconnect()
+        self._meeting_service.todays_meetings(interactive=interactive)
 
     def test_email(self) -> None:
         """Send a test email to self and verify it arrives via IMAP."""
