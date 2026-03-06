@@ -13,7 +13,7 @@ from src.interaction.scheduler_prompts import ask_or_accept, scheduler_ask, sche
 logger = logging.getLogger(__name__)
 
 
-class TodoProcessor:
+class TodoService:
     """Self-contained todo creation and sending. Owns its own SMTP transport."""
 
     def __init__(self, config: ConfigManager) -> None:
@@ -144,12 +144,12 @@ class TodoProcessor:
 
         Returns (success, todo_text). Used by inbox-zero.
         """
-        result = TodoProcessor.generate_todo(openai_client, subject, first_line, body_excerpt)
+        result = TodoService.generate_todo(openai_client, subject, first_line, body_excerpt)
         if not result:
             send_output("Failed to generate todo.")
             return False, ""
 
-        result = TodoProcessor.edit_todo(result)
+        result = TodoService.edit_todo(result)
 
         rules = self._config.get_processing_rules("self")
         subject_tag = rules[CFG_ADDITIONAL_SUBJECT_TAG]
@@ -158,7 +158,7 @@ class TodoProcessor:
         if extra:
             subject_tag = f"{subject_tag} {extra}"
 
-        subject_tag = TodoProcessor.edit_tags(subject_tag)
+        subject_tag = TodoService.edit_tags(subject_tag)
 
         todo_text = result.rtm_text
 
@@ -200,4 +200,4 @@ class TodoProcessor:
 
 
 # Backwards-compatible alias
-RtmTodoCreator = TodoProcessor
+RtmTodoCreator = TodoService

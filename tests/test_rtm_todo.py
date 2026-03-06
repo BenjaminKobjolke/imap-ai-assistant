@@ -1,4 +1,4 @@
-"""Tests for TodoProcessor."""
+"""Tests for TodoService."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import pytest
 
 from src.ai.openai_client import TodoResult
 from src.config.settings import ConfigManager
-from src.processors.rtm_todo import RtmTodoCreator, TodoProcessor
+from src.services.todo_service import RtmTodoCreator, TodoService
 
 
 class TestTodoResultRtmText:
@@ -25,8 +25,8 @@ class TestTodoResultRtmText:
         assert result.rtm_text == "Buy milk !2 ^tomorrow"
 
 
-class TestTodoProcessorInit:
-    """Tests for TodoProcessor constructor."""
+class TestTodoServiceInit:
+    """Tests for TodoService constructor."""
 
     def test_creates_own_smtp_client(self) -> None:
         """Verify constructor creates SmtpClient from config.smtp_config."""
@@ -38,22 +38,22 @@ class TestTodoProcessorInit:
             "password": "secret",
         }
 
-        with patch("src.processors.rtm_todo.SmtpClient") as mock_smtp_cls:
-            proc = TodoProcessor(config)
+        with patch("src.services.todo_service.SmtpClient") as mock_smtp_cls:
+            proc = TodoService(config)
             mock_smtp_cls.assert_called_once_with(config.smtp_config)
             assert proc._smtp_client is mock_smtp_cls.return_value
 
     def test_backwards_compatible_alias(self) -> None:
-        """Verify RtmTodoCreator is an alias for TodoProcessor."""
-        assert RtmTodoCreator is TodoProcessor
+        """Verify RtmTodoCreator is an alias for TodoService."""
+        assert RtmTodoCreator is TodoService
 
 
 class TestSendDirect:
-    """Tests for TodoProcessor.send_direct."""
+    """Tests for TodoService.send_direct."""
 
     @pytest.fixture()
-    def todo_processor(self) -> TodoProcessor:
-        """Create a TodoProcessor with mocked internals."""
+    def todo_processor(self) -> TodoService:
+        """Create a TodoService with mocked internals."""
         config = MagicMock(spec=ConfigManager)
         config.smtp_config = {}
         config.get_processing_rules.return_value = {
@@ -61,12 +61,12 @@ class TestSendDirect:
         }
         config.rtm_email = "rtm@example.com"
 
-        with patch("src.processors.rtm_todo.SmtpClient"):
-            proc = TodoProcessor(config)
+        with patch("src.services.todo_service.SmtpClient"):
+            proc = TodoService(config)
         return proc
 
-    @patch("src.processors.rtm_todo.send_output")
-    def test_send_direct_success(self, mock_output: MagicMock, todo_processor: TodoProcessor) -> None:
+    @patch("src.services.todo_service.send_output")
+    def test_send_direct_success(self, mock_output: MagicMock, todo_processor: TodoService) -> None:
         """Verify send_direct calls send_rtm_todo with correct RTM format."""
         todo_processor._smtp_client.send_rtm_todo.return_value = (True, b"message")
 
@@ -83,8 +83,8 @@ class TestSendDirect:
         )
         mock_output.assert_called_with("Todo sent: Buy milk !2 ^tomorrow #BKToDo")
 
-    @patch("src.processors.rtm_todo.send_output")
-    def test_send_direct_defaults(self, mock_output: MagicMock, todo_processor: TodoProcessor) -> None:
+    @patch("src.services.todo_service.send_output")
+    def test_send_direct_defaults(self, mock_output: MagicMock, todo_processor: TodoService) -> None:
         """Verify send_direct uses priority=3 and due_date=today by default."""
         todo_processor._smtp_client.send_rtm_todo.return_value = (True, b"message")
 
@@ -94,7 +94,7 @@ class TestSendDirect:
         call_kwargs = todo_processor._smtp_client.send_rtm_todo.call_args
         assert call_kwargs.kwargs["todo_text"] == "Do laundry !3 ^today"
 
-    @patch("src.processors.rtm_todo.send_output")
+    @patch("src.services.todo_service.send_output")
     def test_send_direct_missing_rtm_email(self, mock_output: MagicMock) -> None:
         """Verify graceful failure when rtm_email is not configured."""
         config = MagicMock(spec=ConfigManager)
@@ -104,16 +104,16 @@ class TestSendDirect:
         }
         config.rtm_email = ""
 
-        with patch("src.processors.rtm_todo.SmtpClient"):
-            proc = TodoProcessor(config)
+        with patch("src.services.todo_service.SmtpClient"):
+            proc = TodoService(config)
 
         result = proc.send_direct("Buy milk")
 
         assert result is False
         mock_output.assert_called_with("Failed to send todo to RTM.")
 
-    @patch("src.processors.rtm_todo.send_output")
-    def test_send_direct_with_time(self, mock_output: MagicMock, todo_processor: TodoProcessor) -> None:
+    @patch("src.services.todo_service.send_output")
+    def test_send_direct_with_time(self, mock_output: MagicMock, todo_processor: TodoService) -> None:
         """Verify send_direct includes time in RTM format."""
         todo_processor._smtp_client.send_rtm_todo.return_value = (True, b"message")
 
@@ -130,8 +130,8 @@ class TestSendDirect:
         )
         mock_output.assert_called_with("Todo sent: Buy milk !2 ^tomorrow 08:00 #BKToDo")
 
-    @patch("src.processors.rtm_todo.send_output")
-    def test_send_direct_smtp_failure(self, mock_output: MagicMock, todo_processor: TodoProcessor) -> None:
+    @patch("src.services.todo_service.send_output")
+    def test_send_direct_smtp_failure(self, mock_output: MagicMock, todo_processor: TodoService) -> None:
         """Verify failure message when SMTP send fails."""
         todo_processor._smtp_client.send_rtm_todo.return_value = (False, None)
 

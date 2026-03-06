@@ -17,9 +17,9 @@ from src.email.imap_client import EnhancedImapClient
 from src.email.smtp_client import SmtpClient
 from src.interaction.scheduler_prompts import send_output
 from src.processors.action_result import ActionResult
-from src.processors.rtm_todo import TodoProcessor
 from src.search.folder_picker import folder_search_loop
 from src.search.search_cache import SearchCache
+from src.services.todo_service import TodoService
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +44,7 @@ class EmailActionProcessor:
         self._smtp_client = smtp_client
         self._openai_client = openai_client
         self._cache = cache
-        self._todo_processor = TodoProcessor(config)
+        self._todo_processor = TodoService(config)
 
     # ------------------------------------------------------------------
     # Public API

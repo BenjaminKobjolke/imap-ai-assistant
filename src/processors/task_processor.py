@@ -18,7 +18,7 @@ from src.constants import (
 from src.email.imap_client import EnhancedImapClient
 from src.email.smtp_client import SmtpClient
 from src.interaction.scheduler_prompts import scheduler_choose, scheduler_confirm, send_output
-from src.processors.rtm_todo import TodoProcessor
+from src.services.todo_service import TodoService
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +32,7 @@ class TaskProcessor:
         self.smtp_client = smtp_client
         self.openai_client = openai_client
         self.dry_run = dry_run
-        self._todo_processor = TodoProcessor(config)
+        self._todo_processor = TodoService(config)
 
     def process_single_email(self, imap_client: EnhancedImapClient, message_id: str, email_message) -> bool:
         """Process a single email message."""
@@ -58,7 +58,7 @@ class TaskProcessor:
 
             # Process with OpenAI
             logger.info("📨 About to call process_email_to_todo...")
-            result = TodoProcessor.generate_todo(self.openai_client, subject, first_line, body_excerpt)
+            result = TodoService.generate_todo(self.openai_client, subject, first_line, body_excerpt)
             if not result:
                 logger.error(f"Failed to generate todo for message {message_id}")
                 return False
@@ -66,7 +66,7 @@ class TaskProcessor:
             logger.info(f"📨 process_email_to_todo completed, todo: {result.rtm_text}, assignee: {result.assignee}")
 
             # Let user review/edit todo fields individually
-            result = TodoProcessor.edit_todo(result)
+            result = TodoService.edit_todo(result)
 
             # Let user review/edit assignee
             assignee_options = ["self", *self.config.get_other_people_names()]
@@ -91,7 +91,7 @@ class TaskProcessor:
                 subject_tag = f"{subject_tag} {extra_tags}"
 
             # Let user edit tags
-            subject_tag = TodoProcessor.edit_tags(subject_tag)
+            subject_tag = TodoService.edit_tags(subject_tag)
             assignee_email = processing_rules.get(CFG_EMAIL_ADDRESS, "")
             bcc_email = processing_rules.get("bcc", "")
 
