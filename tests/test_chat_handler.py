@@ -12,6 +12,7 @@ from src.ai.chat_handler import (
     ChatSession,
     CommandExecutor,
     DetectedIntent,
+    ExitChatError,
     ValidatedCommand,
 )
 from src.ai.command_registry import CommandRegistry
@@ -249,6 +250,50 @@ class TestCommandExecutor:
         processor.add_todo.assert_called_once_with(
             title="Morning jog", priority=1, due_date="tomorrow", due_time="08:00",
         )
+
+    def test_execute_meetings(
+        self, executor: CommandExecutor, processor: MagicMock,
+    ) -> None:
+        """Verify meetings passes date_str to processor."""
+        executor.execute("meetings", {"date_str": "tomorrow"})
+        processor.meetings.assert_called_once_with(date_str="tomorrow")
+
+    def test_execute_meeting_detail(
+        self, executor: CommandExecutor, processor: MagicMock,
+    ) -> None:
+        """Verify meeting_detail passes index as int to processor."""
+        executor.execute("meeting_detail", {"index": 2})
+        processor.todays_meeting_detail.assert_called_once_with(index=2)
+
+    def test_execute_list_workflows(
+        self, executor: CommandExecutor, processor: MagicMock,
+    ) -> None:
+        """Verify list_workflows is called without parameters."""
+        executor.execute("list_workflows", {})
+        processor.list_workflows.assert_called_once()
+
+    def test_execute_run_workflow(
+        self, executor: CommandExecutor, processor: MagicMock,
+    ) -> None:
+        """Verify run_workflow passes name to processor."""
+        executor.execute("run_workflow", {"name": "daily_report"})
+        processor.run_workflow.assert_called_once_with(name="daily_report")
+
+    def test_execute_update_search_cache_default(
+        self, executor: CommandExecutor, processor: MagicMock,
+    ) -> None:
+        """Verify update_search_cache defaults to folders=None, fast=False."""
+        executor.execute("update_search_cache", {})
+        processor.update_search_cache.assert_called_once_with(
+            folders=None, fast=False,
+        )
+
+    def test_execute_exit_raises_exit_chat_error(
+        self, executor: CommandExecutor,
+    ) -> None:
+        """Verify exit command raises ExitChatError."""
+        with pytest.raises(ExitChatError):
+            executor.execute("exit", {})
 
     def test_execute_unknown_command(self, executor: CommandExecutor) -> None:
         """Verify unknown commands raise ValueError."""
@@ -562,6 +607,59 @@ class TestChatHandler:
     ) -> None:
         """Verify SchedulerAbortError exits the loop gracefully."""
         mock_ask.side_effect = SchedulerAbortError("timeout")
+        handler.run()
+        assert any(
+            "goodbye" in str(call).lower() for call in mock_output.call_args_list
+        )
+
+    @patch("src.ai.chat_handler.stop_output_capture", return_value="")
+    @patch("src.ai.chat_handler.start_output_capture")
+    @patch("src.ai.chat_handler.send_output")
+    def test_execute_command_exit_returns_true(
+        self,
+        mock_output: MagicMock,
+        mock_start: MagicMock,
+        mock_stop: MagicMock,
+        handler: ChatHandler,
+    ) -> None:
+        """Verify _execute_command returns True on ExitChatError."""
+        command = ValidatedCommand(
+            command_name="exit",
+            parameters={},
+            summary="User wants to exit",
+        )
+        result = handler._execute_command(command)
+        assert result is True
+        assert any(
+            "goodbye" in str(call).lower() for call in mock_output.call_args_list
+        )
+
+    @patch("src.ai.chat_handler.scheduler_ask")
+    @patch("src.ai.chat_handler.send_output")
+    def test_run_exits_when_ai_detects_exit_intent(
+        self,
+        mock_output: MagicMock,
+        mock_ask: MagicMock,
+        handler: ChatHandler,
+        openai_client: MagicMock,
+    ) -> None:
+        """Verify run loop terminates when AI returns exit command."""
+        # Phase 1: AI detects exit intent
+        intent_json = json.dumps({
+            "command": "exit",
+            "parameters": {},
+            "follow_up_question": None,
+            "summary": "User wants to leave",
+        })
+        openai_client.ai_chat_detect_intent.return_value = intent_json
+
+        # Phase 2: function calling validates exit command
+        openai_client.ai_chat_validate_parameters.return_value = {
+            "name": "exit",
+            "arguments": {},
+        }
+
+        mock_ask.return_value = "I'm done, thanks"
         handler.run()
         assert any(
             "goodbye" in str(call).lower() for call in mock_output.call_args_list

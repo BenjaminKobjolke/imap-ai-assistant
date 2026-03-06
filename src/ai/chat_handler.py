@@ -6,7 +6,7 @@ import json
 import logging
 import traceback as tb_mod
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, ClassVar
 
 from src.ai.ai_command import Param, ai_command
 from src.ai.command_registry import CommandRegistry
@@ -25,6 +25,14 @@ from src.logging.app_logger import ApplicationLogger
 from src.logging.chat_error_logger import ChatErrorLogger
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Sentinel exception
+# ---------------------------------------------------------------------------
+
+class ExitChatError(Exception):
+    """Raised by the exit command to signal the chat loop should terminate."""
 
 
 # ---------------------------------------------------------------------------
@@ -199,6 +207,75 @@ class CommandExecutor:
         """Execute today's meetings listing."""
         self._processor.todays_meetings()
 
+    @ai_command(
+        name="meetings",
+        description="List meetings for a given date",
+        params=[
+            Param(
+                "date_str",
+                "Date to list meetings for: 'today', 'tomorrow', a day number like '5' or '12', a date like '12.03' or '12.03.2026'",
+                "string",
+                required=True,
+            ),
+        ],
+    )
+    def meetings(self, params: dict[str, Any]) -> None:
+        """List meetings for a specific date."""
+        self._processor.meetings(date_str=params["date_str"])
+
+    @ai_command(
+        name="meeting_detail",
+        description="Show details for a specific meeting by its index number from the meetings list",
+        params=[
+            Param("index", "Meeting index number from the meetings list", "integer", required=True),
+        ],
+    )
+    def meeting_detail(self, params: dict[str, Any]) -> None:
+        """Show details for a specific meeting."""
+        self._processor.todays_meeting_detail(index=int(params["index"]))
+
+    @ai_command(
+        name="list_workflows",
+        description="List all available workflows",
+    )
+    def list_workflows(self, params: dict[str, Any]) -> None:
+        """List available workflows."""
+        self._processor.list_workflows()
+
+    @ai_command(
+        name="run_workflow",
+        description="Execute a named workflow",
+        params=[
+            Param("name", "Name of the workflow to run", "string", required=True),
+        ],
+    )
+    def run_workflow(self, params: dict[str, Any]) -> None:
+        """Run a workflow by name."""
+        self._processor.run_workflow(name=params["name"])
+
+    @ai_command(
+        name="update_search_cache",
+        description="Rebuild the email search cache",
+        params=[
+            Param("folders", "Comma-separated folder names to cache (omit for all folders)", "string"),
+            Param("fast", "Skip folders that already have cache files", "boolean"),
+        ],
+    )
+    def update_search_cache(self, params: dict[str, Any]) -> None:
+        """Rebuild the email search cache."""
+        self._processor.update_search_cache(
+            folders=params.get("folders"),
+            fast=bool(params.get("fast", False)),
+        )
+
+    @ai_command(
+        name="exit",
+        description="End the conversation when the user indicates they are done or don't need anything else",
+    )
+    def exit_chat(self, params: dict[str, Any]) -> None:
+        """Signal that the user wants to end the conversation."""
+        raise ExitChatError
+
 
 # ---------------------------------------------------------------------------
 # Main chat handler
@@ -206,6 +283,8 @@ class CommandExecutor:
 
 class ChatHandler:
     """Orchestrates the --ai conversational CLI mode."""
+
+    _AUTO_EXECUTE_COMMANDS: ClassVar[set[str]] = {"exit"}
 
     def __init__(
         self,
@@ -260,7 +339,8 @@ class ChatHandler:
                     send_output("AI: History cleared. What can I do for you?")
                     continue
 
-            self._handle_user_input(user_input)
+            if self._handle_user_input(user_input):
+                break
 
     def _print_welcome(self) -> None:
         """Display welcome banner."""
@@ -308,8 +388,11 @@ class ChatHandler:
                 lines.append(f"- {name}")
         return "\n".join(lines)
 
-    def _handle_user_input(self, user_input: str) -> None:
-        """Process a single user input through the two-phase flow."""
+    def _handle_user_input(self, user_input: str) -> bool:
+        """Process a single user input through the two-phase flow.
+
+        Returns ``True`` when the chat loop should exit.
+        """
         self._session.add_message("user", user_input)
         send_output("AI: Thinking...")
         logger.debug("Phase 1: detecting intent for input: %s", user_input)
@@ -319,20 +402,20 @@ class ChatHandler:
 
         if intent is None:
             send_output("AI: I'm sorry, I couldn't understand that. Could you rephrase?")
-            return
+            return False
 
         # If AI needs more information, ask the follow-up
         if intent.follow_up_question and not intent.command_name:
             ai_msg = f"AI: {intent.follow_up_question}"
             self._session.add_message("assistant", intent.follow_up_question)
             send_output(ai_msg)
-            return
+            return False
 
         if intent.command_name is None:
             ai_msg = "AI: I couldn't determine which command you need. Could you be more specific?"
             self._session.add_message("assistant", ai_msg)
             send_output(ai_msg)
-            return
+            return False
 
         # Phase 2: Validate parameters via function calling
         logger.debug("Phase 2: validating parameters for command: %s", intent.command_name)
@@ -343,7 +426,11 @@ class ChatHandler:
             send_output("AI: I had trouble validating the parameters. Let's try again.")
             self._session.clear_for_new_request()
             self._initialize_session()
-            return
+            return False
+
+        # Skip confirmation for auto-execute commands (e.g. exit)
+        if validated.command_name in self._AUTO_EXECUTE_COMMANDS:
+            return self._execute_command(validated)
 
         # Confirm, edit, or cancel
         action = self._confirm_or_edit(validated)
@@ -352,7 +439,7 @@ class ChatHandler:
             send_output("AI: Cancelled. What else can I do for you?")
             self._session.clear_for_new_request()
             self._initialize_session()
-            return
+            return False
 
         if action == "change":
             # Preserve context: record what was proposed
@@ -366,17 +453,16 @@ class ChatHandler:
                 modification = scheduler_ask("You", default="").strip()
             except (SchedulerAbortError, EOFError, KeyboardInterrupt):
                 send_output("\nGoodbye!")
-                return
+                return False
             if not modification:
                 send_output("AI: No changes specified. Cancelled.")
                 self._session.clear_for_new_request()
                 self._initialize_session()
-                return
-            self._handle_user_input(modification)
-            return
+                return False
+            return self._handle_user_input(modification)
 
         # action == "execute"
-        self._execute_command(validated)
+        return self._execute_command(validated)
 
     def _phase1_detect_intent(self) -> DetectedIntent | None:
         """Phase 1: Use regular chat completion to detect intent."""
@@ -451,13 +537,20 @@ class ChatHandler:
 
     _ERROR_KEYWORDS = ("unrecognised", "failed", "error")
 
-    def _execute_command(self, command: ValidatedCommand) -> None:
-        """Execute the validated command, logging errors to the session log."""
+    def _execute_command(self, command: ValidatedCommand) -> bool:
+        """Execute the validated command, logging errors to the session log.
+
+        Returns ``True`` when the chat loop should exit.
+        """
         send_output(f"\nAI: Executing {command.command_name}...")
 
         start_output_capture()
         try:
             self._executor.execute(command.command_name, command.parameters)
+        except ExitChatError:
+            stop_output_capture()
+            send_output("Goodbye!")
+            return True
         except Exception as e:
             captured = stop_output_capture()
             logger.error(f"Command execution failed: {e}")
@@ -471,7 +564,7 @@ class ChatHandler:
             self._session.add_message("assistant", error_summary)
             send_output(f"\nAI: The command failed: {e}")
             send_output("What else can I do for you?")
-            return
+            return False
 
         captured = stop_output_capture()
 
@@ -488,3 +581,4 @@ class ChatHandler:
         self._session.add_message("assistant", result_summary)
 
         send_output("\nAI: Done! What else can I do for you?")
+        return False
