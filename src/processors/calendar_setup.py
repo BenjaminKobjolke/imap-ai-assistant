@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from src.config.settings import ConfigManager
-from src.interaction.scheduler_prompts import SchedulerChoice
+from src.interaction.scheduler_prompts import SchedulerChoice, send_output
 from src.processors.meeting_cleanup import MeetingCleanup
 
 logger = logging.getLogger(__name__)
@@ -227,7 +227,7 @@ class CalendarSetup:
         if parsed is None:
             return
 
-        title, event_date, start_hour, end_hour, calendar_query = parsed
+        title, event_date, start_hour, start_minute, end_hour, end_minute, calendar_query = parsed
 
         from src.calendar.google_calendar_client import GoogleCalendarClient
 
@@ -247,8 +247,8 @@ class CalendarSetup:
             calendar_id = resolved_id
             gcal_client.calendar_id = calendar_id
 
-        start_dt = datetime(event_date.year, event_date.month, event_date.day, start_hour)
-        end_dt = start_dt + timedelta(hours=end_hour - start_hour)
+        start_dt = datetime(event_date.year, event_date.month, event_date.day, start_hour, start_minute)
+        end_dt = datetime(event_date.year, event_date.month, event_date.day, end_hour, end_minute)
 
         event_id = gcal_client.create_event(title, start_dt, end_dt)
         if event_id:
@@ -256,24 +256,24 @@ class CalendarSetup:
             if calendar_query:
                 cal_name = calendar_query
             date_str = event_date.strftime("%d.%m.%Y")
-            print(f"Created: {title} on {date_str} {start_hour:02d}:00-{end_hour:02d}:00 ({cal_name})")
+            send_output(f"Created: {title} on {date_str} {start_hour:02d}:{start_minute:02d}-{end_hour:02d}:{end_minute:02d} ({cal_name})")
             undo = SchedulerChoice(
                 "", [("Keep", "keep"), ("Undo (delete event)", "undo")],
             ).choose()
             if undo == "undo":
                 if gcal_client.delete_event_by_id(event_id):
-                    print("Event deleted.")
+                    send_output("Event deleted.")
                 else:
-                    print("Failed to delete event.")
+                    send_output("Failed to delete event.")
         else:
-            print("Failed to create event.")
+            send_output("Failed to create event.")
 
     def _parse_add_date_args(self, raw_args: list[str]) -> tuple | None:
-        """Parse --add-date arguments into (title, date, start_hour, end_hour, calendar_query)."""
+        """Parse --add-date arguments into (title, date, start_hour, start_minute, end_hour, end_minute, calendar_query)."""
         from datetime import date as date_type
 
         if not raw_args:
-            print("Usage: --add-date TITLE [DATE] [START[-END]] [@CALENDAR]")
+            send_output("Usage: --add-date TITLE [DATE] [START[-END]] [@CALENDAR]")
             return None
 
         title = raw_args[0]
@@ -281,39 +281,48 @@ class CalendarSetup:
 
         event_date: date_type = date_type.today()
         start_hour: int | None = None
+        start_minute: int = 0
         end_hour: int | None = None
+        end_minute: int = 0
         calendar_query: str | None = None
 
-        time_re = re.compile(r"^(\d{1,2})(?:-(\d{1,2}))?$")
+        time_re = re.compile(r"^(\d{1,2})(?::(\d{2}))?(?:-(\d{1,2})(?::(\d{2}))?)?$")
 
         for token in tokens:
             if token.startswith("@"):
                 calendar_query = token[1:]
                 continue
 
-            if "." in token:
-                try:
-                    event_date = MeetingCleanup._parse_date(token)
-                    continue
-                except ValueError:
-                    pass
-
             m = time_re.match(token)
             if m:
                 start_hour = int(m.group(1))
-                end_hour = int(m.group(2)) if m.group(2) else start_hour + 1
+                start_minute = int(m.group(2)) if m.group(2) else 0
+                if m.group(3):
+                    end_hour = int(m.group(3))
+                    end_minute = int(m.group(4)) if m.group(4) else 0
+                else:
+                    end_hour = start_hour + 1
+                    end_minute = start_minute
                 continue
 
-            print(f"Unrecognised argument: {token}")
+            try:
+                event_date = MeetingCleanup._parse_date(token)
+                continue
+            except ValueError:
+                pass
+
+            send_output(f"Unrecognised argument: {token}")
             return None
 
         now = datetime.now()
         if start_hour is None:
             start_hour = now.hour
+            start_minute = 0
         if end_hour is None:
             end_hour = start_hour + 1
+            end_minute = start_minute
 
-        return title, event_date, start_hour, end_hour, calendar_query
+        return title, event_date, start_hour, start_minute, end_hour, end_minute, calendar_query
 
     def _resolve_calendar_query(self, gcal_client: object, query: str) -> str | None:
         """Resolve a partial calendar name to a calendar ID via substring match."""
@@ -325,19 +334,19 @@ class CalendarSetup:
         ]
 
         if not matches:
-            print(f"No calendar matching '{query}' found.")
+            send_output(f"No calendar matching '{query}' found.")
             return None
 
         if len(matches) == 1:
             cal = matches[0]
-            print(f"Calendar: {cal.get('summary', '')} ({cal.get('id', '')})")
+            send_output(f"Calendar: {cal.get('summary', '')} ({cal.get('id', '')})")
             return cal.get("id", "")
 
-        print(f"\nMultiple calendars match '{query}':\n")
+        send_output(f"\nMultiple calendars match '{query}':\n")
         for i, cal in enumerate(matches, 1):
-            print(f"  {i}. {cal.get('summary', '')} -- {cal.get('id', '')}")
+            send_output(f"  {i}. {cal.get('summary', '')} -- {cal.get('id', '')}")
 
-        print("\nPick a number:")
+        send_output("\nPick a number:")
         while True:
             choice = input("  > ").strip()
             if choice.isdigit() and 1 <= int(choice) <= len(matches):
