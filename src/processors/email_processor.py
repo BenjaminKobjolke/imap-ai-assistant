@@ -579,6 +579,7 @@ class EmailProcessor:
 
         registry = CommandRegistry()
         executor = CommandExecutor(self)
+        executor.bind_to_registry(registry)
         handler = ChatHandler(
             self.openai_client, registry, executor, self.app_logger, self.config,
         )

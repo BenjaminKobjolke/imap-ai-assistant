@@ -34,7 +34,7 @@ def openai_client() -> MagicMock:
 
 @pytest.fixture()
 def registry() -> CommandRegistry:
-    """Create a real CommandRegistry with defaults."""
+    """Create an empty CommandRegistry (populated by executor fixture)."""
     return CommandRegistry()
 
 
@@ -60,9 +60,11 @@ def config() -> MagicMock:
 
 
 @pytest.fixture()
-def executor(processor: MagicMock) -> CommandExecutor:
-    """Create a CommandExecutor with a mock processor."""
-    return CommandExecutor(processor)
+def executor(processor: MagicMock, registry: CommandRegistry) -> CommandExecutor:
+    """Create a CommandExecutor with a mock processor, bound to registry."""
+    ex = CommandExecutor(processor)
+    ex.bind_to_registry(registry)
+    return ex
 
 
 @pytest.fixture()

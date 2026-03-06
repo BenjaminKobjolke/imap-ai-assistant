@@ -8,6 +8,7 @@ import traceback as tb_mod
 from dataclasses import dataclass, field
 from typing import Any
 
+from src.ai.ai_command import Param, ai_command
 from src.ai.command_registry import CommandRegistry
 from src.ai.openai_client import OpenAIClient
 from src.config.settings import ConfigManager
@@ -96,12 +97,11 @@ class CommandExecutor:
 
     def __init__(self, processor: Any) -> None:
         self._processor = processor
-        self._handlers: dict[str, Any] = {
-            "add_date": self._execute_add_date,
-            "inbox_zero": self._execute_inbox_zero,
-            "search": self._execute_search,
-            "todays_meetings": self._execute_todays_meetings,
-        }
+        self._handlers: dict[str, Any] = {}
+
+    def bind_to_registry(self, registry: CommandRegistry) -> None:
+        """Let the registry discover @ai_command methods and build dispatch."""
+        self._handlers = registry.register_from_executor(self)
 
     def execute(self, command_name: str, params: dict[str, Any]) -> None:
         """Execute a command by name with the given parameters."""
@@ -110,7 +110,18 @@ class CommandExecutor:
             raise ValueError(f"Unknown command: {command_name}")
         handler(params)
 
-    def _execute_add_date(self, params: dict[str, Any]) -> None:
+    @ai_command(
+        name="add_date",
+        description="Create a Google Calendar event",
+        params=[
+            Param("title", "Title/name of the event", "string", required=True),
+            Param("date", "Date for the event (DD.MM.YYYY, 'today', 'tomorrow')", "string"),
+            Param("start_time", "Start time in HH:MM format (e.g. 14:00)", "string"),
+            Param("end_time", "End time in HH:MM format (e.g. 15:00)", "string"),
+            Param("calendar", "Calendar name or ID to create the event in", "string"),
+        ],
+    )
+    def add_date(self, params: dict[str, Any]) -> None:
         """Translate AI parameters into the add_date CLI format."""
         raw_args: list[str] = [params["title"]]
         if params.get("date"):
@@ -126,12 +137,31 @@ class CommandExecutor:
             raw_args.append(f"@{params['calendar']}")
         self._processor.add_date(raw_args)
 
-    def _execute_inbox_zero(self, params: dict[str, Any]) -> None:
+    @ai_command(
+        name="inbox_zero",
+        description="Process inbox emails interactively one by one to achieve inbox zero",
+        params=[
+            Param("unread_only", "Only process unread emails", "boolean"),
+        ],
+    )
+    def inbox_zero(self, params: dict[str, Any]) -> None:
         """Execute inbox-zero with optional unread_only flag."""
         unread_only = bool(params.get("unread_only", False))
         self._processor.inbox_zero(unread_only=unread_only)
 
-    def _execute_search(self, params: dict[str, Any]) -> None:
+    @ai_command(
+        name="search",
+        description="Search emails by term with optional filters",
+        params=[
+            Param("search_term", "The search term or query", "string", required=True),
+            Param("body_term", "Additional body text filter", "string"),
+            Param("date", "Exact date filter (DD.MM.YYYY)", "string"),
+            Param("date_after", "Only emails after this date (DD.MM.YYYY)", "string"),
+            Param("date_before", "Only emails before this date (DD.MM.YYYY)", "string"),
+            Param("path", "Specific IMAP folder to search in", "string"),
+        ],
+    )
+    def search(self, params: dict[str, Any]) -> None:
         """Execute email search with optional filters."""
         self._processor.search_emails(
             search_term=params["search_term"],
@@ -142,7 +172,11 @@ class CommandExecutor:
             path=params.get("path"),
         )
 
-    def _execute_todays_meetings(self, params: dict[str, Any]) -> None:
+    @ai_command(
+        name="todays_meetings",
+        description="List today's meetings with start and end times",
+    )
+    def todays_meetings(self, params: dict[str, Any]) -> None:
         """Execute today's meetings listing."""
         self._processor.todays_meetings()
 

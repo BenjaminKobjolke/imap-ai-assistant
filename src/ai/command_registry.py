@@ -72,75 +72,29 @@ class CommandRegistry:
 
     def __init__(self) -> None:
         self._commands: dict[str, CommandDefinition] = {}
-        self._register_defaults()
-
-    def _register_defaults(self) -> None:
-        """Register the initial four commands."""
-        self.register(CommandDefinition(
-            name="add_date",
-            description="Create a Google Calendar event",
-            parameters=[
-                CommandParameter(
-                    "title", "Title/name of the event", "string", required=True,
-                ),
-                CommandParameter(
-                    "date",
-                    "Date for the event (DD.MM.YYYY, 'today', 'tomorrow')",
-                    "string",
-                ),
-                CommandParameter(
-                    "start_time", "Start time in HH:MM format (e.g. 14:00)", "string",
-                ),
-                CommandParameter(
-                    "end_time", "End time in HH:MM format (e.g. 15:00)", "string",
-                ),
-                CommandParameter(
-                    "calendar", "Calendar name or ID to create the event in", "string",
-                ),
-            ],
-        ))
-        self.register(CommandDefinition(
-            name="inbox_zero",
-            description="Process inbox emails interactively one by one to achieve inbox zero",
-            parameters=[
-                CommandParameter(
-                    "unread_only", "Only process unread emails", "boolean",
-                ),
-            ],
-        ))
-        self.register(CommandDefinition(
-            name="search",
-            description="Search emails by term with optional filters",
-            parameters=[
-                CommandParameter(
-                    "search_term", "The search term or query", "string", required=True,
-                ),
-                CommandParameter(
-                    "body_term", "Additional body text filter", "string",
-                ),
-                CommandParameter(
-                    "date", "Exact date filter (DD.MM.YYYY)", "string",
-                ),
-                CommandParameter(
-                    "date_after", "Only emails after this date (DD.MM.YYYY)", "string",
-                ),
-                CommandParameter(
-                    "date_before", "Only emails before this date (DD.MM.YYYY)", "string",
-                ),
-                CommandParameter(
-                    "path", "Specific IMAP folder to search in", "string",
-                ),
-            ],
-        ))
-        self.register(CommandDefinition(
-            name="todays_meetings",
-            description="List today's meetings with start and end times",
-            parameters=[],
-        ))
 
     def register(self, command: CommandDefinition) -> None:
         """Register a command definition."""
         self._commands[command.name] = command
+
+    def register_from_executor(self, executor: object) -> dict[str, Any]:
+        """Scan executor for @ai_command decorated methods and register them.
+
+        Returns a dict mapping command names to bound handler callables.
+        """
+        handlers: dict[str, Any] = {}
+        for attr_name in dir(executor):
+            if attr_name.startswith("_"):
+                continue
+            method = getattr(executor, attr_name, None)
+            if method is None or not callable(method):
+                continue
+            cmd = getattr(method, "_ai_command", None)
+            if cmd is None:
+                continue
+            self.register(cmd)
+            handlers[cmd.name] = method
+        return handlers
 
     def get(self, name: str) -> CommandDefinition | None:
         """Get a command by name."""
