@@ -135,13 +135,36 @@ class SchedulerChoice:
         return self._ABORT_ACTION
 
 
+_capture_buffer: list[str] | None = None
+
+
+def start_output_capture() -> None:
+    """Begin capturing send_output calls into a buffer."""
+    global _capture_buffer
+    _capture_buffer = []
+
+
+def stop_output_capture() -> str:
+    """Stop capturing and return all captured text joined by newlines."""
+    global _capture_buffer
+    result = "\n".join(_capture_buffer) if _capture_buffer else ""
+    _capture_buffer = None
+    return result
+
+
 def send_output(text: str) -> None:
     """Send a display message to the user.
 
     When interactive, delegates to the SDK output() for protocol-level display.
     Otherwise falls back to print() for normal console output.
+    Unicode safety is built in so callers do not need safe_print().
     """
+    if _capture_buffer is not None:
+        _capture_buffer.append(text)
     if is_interactive():
         output(text)
     else:
-        print(text)
+        try:
+            print(text)
+        except UnicodeEncodeError:
+            print(text.encode("ascii", errors="replace").decode("ascii"))

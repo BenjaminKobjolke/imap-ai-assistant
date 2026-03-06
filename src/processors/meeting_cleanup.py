@@ -9,13 +9,12 @@ from dateutil.tz import UTC as dateutil_UTC
 from dateutil.tz import gettz
 
 from src.constants import MIME_TEXT_CALENDAR
-from src.interaction.scheduler_prompts import SchedulerChoice
+from src.interaction.scheduler_prompts import SchedulerChoice, send_output
 from src.processors.meeting_display import (
     extract_meeting_links as _extract_meeting_links_fn,
 )
 from src.processors.meeting_display import (
     list_meetings,
-    safe_print,
 )
 from src.processors.meeting_display import (
     show_meeting_detail as _show_detail_fn,
@@ -308,8 +307,8 @@ class MeetingCleanup:
                 logger.error(f"Error processing '{subject}': {e}")
                 skipped += 1
 
-        print("\nMeeting cleanup complete:")
-        print(f"  Checked: {total} | Moved: {moved} | Kept: {kept} | Skipped: {skipped}")
+        send_output("\nMeeting cleanup complete:")
+        send_output(f"  Checked: {total} | Moved: {moved} | Kept: {kept} | Skipped: {skipped}")
 
     @staticmethod
     def get_todays_meetings(client, config, target_date: date | None = None) -> list[dict]:
@@ -411,7 +410,7 @@ class MeetingCleanup:
         meetings = MeetingCleanup.get_todays_meetings(client, config)
 
         if not meetings or index < 1 or index > len(meetings):
-            safe_print(f"\nInvalid meeting index: {index}. Use --todays-meetings to see available indices.")
+            send_output(f"\nInvalid meeting index: {index}. Use --todays-meetings to see available indices.")
             return
 
         _show_detail_fn(meetings[index - 1])

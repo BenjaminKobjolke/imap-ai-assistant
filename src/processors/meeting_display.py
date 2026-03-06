@@ -8,14 +8,7 @@ import webbrowser
 from datetime import date
 
 from src.constants import MIME_TEXT_PLAIN
-
-
-def safe_print(text: str) -> None:
-    """Print text safely on Windows console by replacing unencodable chars."""
-    try:
-        print(text)
-    except UnicodeEncodeError:
-        print(text.encode("ascii", errors="replace").decode("ascii"))
+from src.interaction.scheduler_prompts import send_output
 
 
 def extract_meeting_links(email_message: object, ics_text: str | None) -> list[dict[str, str]]:
@@ -76,17 +69,17 @@ def list_meetings(meetings: list[dict], target: date) -> None:
     """Print a formatted list of meetings for a given date."""
     if not meetings:
         label = "today" if target == date.today() else str(target)
-        print(f"\nNo meetings for {label}")
+        send_output(f"\nNo meetings for {label}")
         return
 
     header = f"Today's meetings ({target})" if target == date.today() else f"Meetings for {target}"
 
-    safe_print(f"\n{header}:\n")
+    send_output(f"\n{header}:\n")
     for m in meetings:
         start_str = m["start"].strftime("%H:%M")
         end_str = m["end"].strftime("%H:%M") if m["end"] else "??:??"
-        safe_print(f"  {m['index']:>2}.  {start_str} - {end_str}  {m['subject']}")
-    safe_print(f"\nTotal: {len(meetings)} meeting(s)")
+        send_output(f"  {m['index']:>2}.  {start_str} - {end_str}  {m['subject']}")
+    send_output(f"\nTotal: {len(meetings)} meeting(s)")
 
 
 def show_meeting_detail(meeting: dict) -> None:
@@ -99,19 +92,19 @@ def show_meeting_detail(meeting: dict) -> None:
     location = m["parsed"].get("location") or "(none)"
     links = extract_meeting_links(m["email_message"], m["ics_text"])
 
-    safe_print(f"\nMeeting #{m['index']}: {m['subject']}\n")
-    safe_print(f"  Time:       {start_str} - {end_str}")
-    safe_print(f"  Organizer:  {organizer}")
-    safe_print(f"  Location:   {location}")
+    send_output(f"\nMeeting #{m['index']}: {m['subject']}\n")
+    send_output(f"  Time:       {start_str} - {end_str}")
+    send_output(f"  Organizer:  {organizer}")
+    send_output(f"  Location:   {location}")
 
     if links:
-        safe_print("\n  Links:")
+        send_output("\n  Links:")
         for i, link in enumerate(links, 1):
-            safe_print(f"    {i}. {link['type']}: {link['url']}")
+            send_output(f"    {i}. {link['type']}: {link['url']}")
 
-        safe_print("\n  [c] Copy link to clipboard")
-        safe_print("  [o] Open link in browser")
-        safe_print("  [a] Abort")
+        send_output("\n  [c] Copy link to clipboard")
+        send_output("  [o] Open link in browser")
+        send_output("  [a] Abort")
         choice = input("\n  > ").strip().lower()
 
         if choice in ("c", "o"):
@@ -124,9 +117,9 @@ def show_meeting_detail(meeting: dict) -> None:
             else:
                 _open_in_browser(url)
         else:
-            safe_print("  Aborted.")
+            send_output("  Aborted.")
     else:
-        safe_print("\n  Links:      (none found)")
+        send_output("\n  Links:      (none found)")
 
 
 def _pick_link_index(links: list[dict[str, str]]) -> int | None:
@@ -137,11 +130,11 @@ def _pick_link_index(links: list[dict[str, str]]) -> int | None:
     try:
         link_idx = int(idx_input) - 1
         if link_idx < 0 or link_idx >= len(links):
-            safe_print("  Invalid link number. Aborted.")
+            send_output("  Invalid link number. Aborted.")
             return None
         return link_idx
     except ValueError:
-        safe_print("  Invalid input. Aborted.")
+        send_output("  Invalid input. Aborted.")
         return None
 
 
@@ -152,17 +145,17 @@ def _copy_to_clipboard(url: str) -> None:
     """Copy a URL to the system clipboard."""
     try:
         subprocess.run(["clip"], input=url, text=True, check=False)
-        safe_print("  Link copied to clipboard.")
+        send_output("  Link copied to clipboard.")
     except Exception:
         logger.debug("Failed to copy to clipboard", exc_info=True)
-        safe_print("  Failed to copy to clipboard.")
+        send_output("  Failed to copy to clipboard.")
 
 
 def _open_in_browser(url: str) -> None:
     """Open a URL in the default browser."""
     try:
         webbrowser.open(url)
-        safe_print("  Link opened in browser.")
+        send_output("  Link opened in browser.")
     except Exception:
         logger.debug("Failed to open browser", exc_info=True)
-        safe_print("  Failed to open browser.")
+        send_output("  Failed to open browser.")

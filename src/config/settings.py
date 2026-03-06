@@ -244,6 +244,13 @@ class ConfigManager:
         """Get number of backup log files to keep."""
         return self.logging_config.get("backup_count", 5)
 
+    # -- Chat settings ---------------------------------------------------------
+
+    @property
+    def chat_max_history(self) -> int:
+        """Max conversation messages to keep in AI chat mode."""
+        return self._config.get("chat", {}).get("max_history", 100)
+
     @property
     def meetings_folder(self) -> str:
         """Get the IMAP folder path for meeting emails."""

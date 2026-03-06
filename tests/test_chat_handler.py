@@ -54,6 +54,8 @@ def config() -> MagicMock:
         {"name": "XD Mitarbeiter", "id": "ghi@group.calendar.google.com"},
     ]
     mock.add_date_calendar_name = "Termine"
+    mock.chat_max_history = 100
+    mock.log_dir = "logs"
     return mock
 
 
@@ -110,6 +112,26 @@ class TestChatSession:
         session.clear_for_new_request()
         assert len(session.history) == 1
         assert session.history[0].role == "system"
+
+    def test_trim_drops_oldest_messages(self) -> None:
+        """Verify trimming keeps system prompt and most recent messages."""
+        session = ChatSession(max_history=5)
+        session.add_message("system", "sys")
+        for i in range(6):
+            session.add_message("user", f"msg{i}")
+        # 1 system + 4 most recent user messages = 5 total
+        assert len(session.history) == 5
+        assert session.history[0].role == "system"
+        assert session.history[1].content == "msg2"
+        assert session.history[-1].content == "msg5"
+
+    def test_trim_preserves_all_when_under_limit(self) -> None:
+        """Verify no trimming when under max_history."""
+        session = ChatSession(max_history=10)
+        session.add_message("system", "sys")
+        session.add_message("user", "a")
+        session.add_message("assistant", "b")
+        assert len(session.history) == 3
 
 
 # ---------------------------------------------------------------------------
@@ -349,14 +371,18 @@ class TestChatHandler:
         )
         assert handler._confirm_or_edit(command) == "cancel"
 
+    @patch("src.ai.chat_handler.stop_output_capture", return_value="")
+    @patch("src.ai.chat_handler.start_output_capture")
     @patch("src.ai.chat_handler.send_output")
     def test_execute_command_success(
         self,
         mock_output: MagicMock,
+        mock_start: MagicMock,
+        mock_stop: MagicMock,
         handler: ChatHandler,
         processor: MagicMock,
     ) -> None:
-        """Verify successful command execution."""
+        """Verify successful command execution uses capture API."""
         command = ValidatedCommand(
             command_name="todays_meetings",
             parameters={},
@@ -364,11 +390,43 @@ class TestChatHandler:
         )
         handler._execute_command(command)
         processor.todays_meetings.assert_called_once()
+        mock_start.assert_called_once()
+        mock_stop.assert_called_once()
 
+    @patch("src.ai.chat_handler.stop_output_capture", return_value="")
+    @patch("src.ai.chat_handler.start_output_capture")
+    @patch("src.ai.chat_handler.send_output")
+    def test_history_preserved_after_execution(
+        self,
+        mock_output: MagicMock,
+        mock_start: MagicMock,
+        mock_stop: MagicMock,
+        handler: ChatHandler,
+        processor: MagicMock,
+    ) -> None:
+        """Verify assistant result message is added to session history."""
+        handler._initialize_session()
+        handler._session.add_message("user", "show meetings")
+        command = ValidatedCommand(
+            command_name="todays_meetings",
+            parameters={},
+            summary="List meetings",
+        )
+        handler._execute_command(command)
+        # History should contain system + user + assistant result
+        roles = [m.role for m in handler._session.history]
+        assert "assistant" in roles
+        last_asst = [m for m in handler._session.history if m.role == "assistant"][-1]
+        assert "todays_meetings" in last_asst.content
+
+    @patch("src.ai.chat_handler.stop_output_capture", return_value="")
+    @patch("src.ai.chat_handler.start_output_capture")
     @patch("src.ai.chat_handler.send_output")
     def test_execute_command_failure(
         self,
         mock_output: MagicMock,
+        mock_start: MagicMock,
+        mock_stop: MagicMock,
         handler: ChatHandler,
         processor: MagicMock,
     ) -> None:
@@ -384,6 +442,29 @@ class TestChatHandler:
         assert any(
             "failed" in str(call).lower() for call in mock_output.call_args_list
         )
+        mock_start.assert_called_once()
+        mock_stop.assert_called_once()
+
+    @patch("src.ai.chat_handler.stop_output_capture", return_value="Unrecognised argument: xyz")
+    @patch("src.ai.chat_handler.start_output_capture")
+    @patch("src.ai.chat_handler.send_output")
+    def test_execute_command_error_keyword_logged(
+        self,
+        mock_output: MagicMock,
+        mock_start: MagicMock,
+        mock_stop: MagicMock,
+        handler: ChatHandler,
+        processor: MagicMock,
+    ) -> None:
+        """Verify error keywords in captured output trigger error logging."""
+        command = ValidatedCommand(
+            command_name="add_date",
+            parameters={"title": "test"},
+            summary="Add date",
+        )
+        handler._execute_command(command)
+        # The error logger should have been called due to 'unrecognised' keyword
+        assert handler._error_logger.log_path.exists()
 
     @patch("src.ai.chat_handler.scheduler_ask")
     @patch("src.ai.chat_handler.send_output")
@@ -415,6 +496,22 @@ class TestChatHandler:
         handler.run()
         assert any(
             "goodbye" in str(call).lower() for call in mock_output.call_args_list
+        )
+
+    @patch("src.ai.chat_handler.scheduler_ask")
+    @patch("src.ai.chat_handler.send_output")
+    def test_clear_command_resets_history(
+        self,
+        mock_output: MagicMock,
+        mock_ask: MagicMock,
+        handler: ChatHandler,
+    ) -> None:
+        """Verify 'clear' resets history and re-initializes session."""
+        mock_ask.side_effect = ["clear", "quit"]
+        handler.run()
+        assert any(
+            "history cleared" in str(call).lower()
+            for call in mock_output.call_args_list
         )
 
     @patch("src.ai.chat_handler.scheduler_ask")
@@ -480,4 +577,53 @@ class TestBuildCalendarList:
         cfg.add_date_calendar_name = ""
         h = ChatHandler(openai_client, registry, executor, config=cfg)
         result = h._build_calendar_list()
+        assert result == ""
+
+
+# ---------------------------------------------------------------------------
+# Output capture tests
+# ---------------------------------------------------------------------------
+
+class TestOutputCapture:
+    """Tests for start_output_capture / stop_output_capture."""
+
+    def test_capture_collects_send_output(self) -> None:
+        """Verify send_output calls are captured between start/stop."""
+        from src.interaction.scheduler_prompts import (
+            send_output as _send,
+        )
+        from src.interaction.scheduler_prompts import (
+            start_output_capture,
+            stop_output_capture,
+        )
+
+        start_output_capture()
+        _send("hello")
+        _send("world")
+        result = stop_output_capture()
+        assert result == "hello\nworld"
+
+    def test_capture_returns_empty_when_no_output(self) -> None:
+        """Verify stop returns empty string when nothing was sent."""
+        from src.interaction.scheduler_prompts import (
+            start_output_capture,
+            stop_output_capture,
+        )
+
+        start_output_capture()
+        result = stop_output_capture()
+        assert result == ""
+
+    def test_no_capture_when_not_started(self) -> None:
+        """Verify send_output works normally without capture active."""
+        from src.interaction.scheduler_prompts import (
+            send_output as _send,
+        )
+        from src.interaction.scheduler_prompts import (
+            stop_output_capture,
+        )
+
+        # Should not raise even though capture was never started
+        _send("no-op")
+        result = stop_output_capture()
         assert result == ""

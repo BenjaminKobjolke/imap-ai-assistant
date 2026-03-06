@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import traceback as tb_mod
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -16,8 +17,11 @@ from src.interaction.scheduler_prompts import (
     scheduler_ask,
     scheduler_choose,
     send_output,
+    start_output_capture,
+    stop_output_capture,
 )
 from src.logging.app_logger import ApplicationLogger
+from src.logging.chat_error_logger import ChatErrorLogger
 
 logger = logging.getLogger(__name__)
 
@@ -58,10 +62,12 @@ class ChatSession:
     """Maintains state across the conversation loop."""
 
     history: list[ConversationMessage] = field(default_factory=list)
+    max_history: int = 100
 
     def add_message(self, role: str, content: str) -> None:
         """Append a message to conversation history."""
         self.history.append(ConversationMessage(role=role, content=content))
+        self._trim()
 
     def to_openai_messages(self) -> list[dict[str, str]]:
         """Convert history to OpenAI message format."""
@@ -70,6 +76,15 @@ class ChatSession:
     def clear_for_new_request(self) -> None:
         """Keep system prompt, clear user/assistant turns for fresh request."""
         self.history = [m for m in self.history if m.role == "system"]
+
+    def _trim(self) -> None:
+        """Drop oldest non-system messages when history exceeds max_history."""
+        if len(self.history) <= self.max_history:
+            return
+        system = [m for m in self.history if m.role == "system"]
+        non_system = [m for m in self.history if m.role != "system"]
+        keep = non_system[-(self.max_history - len(system)):]
+        self.history = system + keep
 
 
 # ---------------------------------------------------------------------------
@@ -152,7 +167,10 @@ class ChatHandler:
         self._executor = executor
         self._app_logger = app_logger
         self._config = config
-        self._session = ChatSession()
+        max_hist = config.chat_max_history if config else 100
+        self._session = ChatSession(max_history=max_hist)
+        log_dir = config.log_dir if config else "logs"
+        self._error_logger = ChatErrorLogger(log_dir)
 
     def run(self, initial_message: str | None = None) -> None:
         """Main conversational loop."""
@@ -183,6 +201,12 @@ class ChatHandler:
                     send_output("Goodbye!")
                     break
 
+                if user_input.lower() in {"clear", "reset"}:
+                    self._session.clear_for_new_request()
+                    self._initialize_session()
+                    send_output("AI: History cleared. What can I do for you?")
+                    continue
+
             self._handle_user_input(user_input)
 
     def _print_welcome(self) -> None:
@@ -192,7 +216,7 @@ class ChatHandler:
         send_output("  IMAP AI Assistant - Conversational Mode")
         send_output("=" * 50)
         send_output("Describe what you want to do in natural language.")
-        send_output("Type 'exit' or 'quit' to leave.")
+        send_output("Type 'exit' or 'quit' to leave. Type 'clear' to reset context.")
         send_output("")
         available = ", ".join(cmd.name for cmd in self._registry.all_commands())
         send_output(f"Available commands: {available}")
@@ -301,10 +325,6 @@ class ChatHandler:
         # action == "execute"
         self._execute_command(validated)
 
-        # Reset for next request
-        self._session.clear_for_new_request()
-        self._initialize_session()
-
     def _phase1_detect_intent(self) -> DetectedIntent | None:
         """Phase 1: Use regular chat completion to detect intent."""
         response_text = self._openai.ai_chat_detect_intent(
@@ -376,13 +396,42 @@ class ChatHandler:
 
         return ["execute", "change", "cancel"][index]
 
+    _ERROR_KEYWORDS = ("unrecognised", "failed", "error")
+
     def _execute_command(self, command: ValidatedCommand) -> None:
-        """Execute the validated command."""
+        """Execute the validated command, logging errors to the session log."""
         send_output(f"\nAI: Executing {command.command_name}...")
+
+        start_output_capture()
         try:
             self._executor.execute(command.command_name, command.parameters)
-            send_output("\nAI: Done! What else can I do for you?")
         except Exception as e:
+            captured = stop_output_capture()
             logger.error(f"Command execution failed: {e}")
+            self._error_logger.log_error(
+                command_name=command.command_name,
+                parameters=command.parameters,
+                error=str(e),
+                traceback=tb_mod.format_exc(),
+            )
+            error_summary = f"Command {command.command_name} failed: {e}"
+            self._session.add_message("assistant", error_summary)
             send_output(f"\nAI: The command failed: {e}")
             send_output("What else can I do for you?")
+            return
+
+        captured = stop_output_capture()
+
+        if any(kw in captured.lower() for kw in self._ERROR_KEYWORDS):
+            self._error_logger.log_error(
+                command_name=command.command_name,
+                parameters=command.parameters,
+                error=captured.strip(),
+            )
+
+        result_summary = f"Executed {command.command_name} with parameters: {json.dumps(command.parameters)}"
+        if captured:
+            result_summary += f"\nOutput: {captured.strip()}"
+        self._session.add_message("assistant", result_summary)
+
+        send_output("\nAI: Done! What else can I do for you?")
