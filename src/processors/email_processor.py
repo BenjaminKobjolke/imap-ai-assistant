@@ -566,6 +566,14 @@ class EmailProcessor:
         """Load and execute a named workflow."""
         self._workflow_runner.run_workflow(name)
 
+    # -- Todo delegation -----------------------------------------------------------
+
+    def add_todo(self, title: str, priority: int = 3, due_date: str = "today") -> None:
+        """Create and send a todo directly to RTM."""
+        from src.processors.rtm_todo import TodoProcessor
+        todo_proc = TodoProcessor(self.config)
+        todo_proc.send_direct(title, priority, due_date)
+
     # -- AI chat delegation --------------------------------------------------------
 
     def ai_chat(self, initial_message: str | None = None) -> None:

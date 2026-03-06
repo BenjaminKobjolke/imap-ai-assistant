@@ -1,4 +1,4 @@
-"""Shared RTM todo creation logic used by TaskProcessor and InboxZero."""
+"""Self-contained todo creation and sending. Owns its own SMTP transport."""
 
 from __future__ import annotations
 
@@ -8,13 +8,21 @@ from src.ai.openai_client import OpenAIClient, TodoResult
 from src.config.settings import ConfigManager
 from src.constants import CFG_ADDITIONAL_SUBJECT_TAG
 from src.email.smtp_client import SmtpClient
-from src.interaction.scheduler_prompts import ask_or_accept, scheduler_ask, scheduler_choose, scheduler_confirm, send_output
+from src.interaction.scheduler_prompts import ask_or_accept, scheduler_ask, scheduler_choose, send_output
 
 logger = logging.getLogger(__name__)
 
 
-class RtmTodoCreator:
-    """Reusable static methods for creating and sending RTM todos."""
+class TodoProcessor:
+    """Self-contained todo creation and sending. Owns its own SMTP transport."""
+
+    def __init__(self, config: ConfigManager) -> None:
+        self._config = config
+        self._smtp_client = SmtpClient(config.smtp_config)
+
+    # ------------------------------------------------------------------
+    # Static methods (no state needed)
+    # ------------------------------------------------------------------
 
     @staticmethod
     def generate_todo(
@@ -73,10 +81,13 @@ class RtmTodoCreator:
         """Let the user edit the resolved tags string."""
         return ask_or_accept("Tags:", default=subject_tag)
 
-    @staticmethod
-    def resolve_extra_tags(config: ConfigManager, sender: str, subject: str) -> str:
+    # ------------------------------------------------------------------
+    # Instance methods (use self._smtp_client and self._config)
+    # ------------------------------------------------------------------
+
+    def resolve_extra_tags(self, sender: str, subject: str) -> str:
         """Evaluate sender and keyword tag rules, return extra tags to append."""
-        rules = config.get_subject_tag_rules()
+        rules = self._config.get_subject_tag_rules()
         tags: list[str] = []
         sender_lower = sender.lower()
         subject_lower = subject.lower()
@@ -96,10 +107,8 @@ class RtmTodoCreator:
 
         return " ".join(tags)
 
-    @staticmethod
     def send_todo(
-        smtp_client: SmtpClient,
-        config: ConfigManager,
+        self,
         todo_text: str,
         subject_tag: str,
         original_subject: str,
@@ -107,12 +116,12 @@ class RtmTodoCreator:
         task_tracking_headers: dict[str, str] | None = None,
     ) -> tuple[bool, bytes | None]:
         """Send todo to RTM via SMTP. Returns (success, message_bytes)."""
-        rtm_email = config.rtm_email
+        rtm_email = self._config.rtm_email
         if not rtm_email:
             send_output("RTM email address not configured.")
             return False, None
 
-        return smtp_client.send_rtm_todo(
+        return self._smtp_client.send_rtm_todo(
             rtm_email=rtm_email,
             todo_text=todo_text,
             subject_tag=subject_tag,
@@ -121,11 +130,9 @@ class RtmTodoCreator:
             task_tracking_headers=task_tracking_headers,
         )
 
-    @staticmethod
     def create_and_send(
+        self,
         openai_client: OpenAIClient,
-        smtp_client: SmtpClient,
-        config: ConfigManager,
         subject: str,
         first_line: str,
         body_excerpt: str,
@@ -137,21 +144,21 @@ class RtmTodoCreator:
 
         Returns (success, todo_text). Used by inbox-zero.
         """
-        result = RtmTodoCreator.generate_todo(openai_client, subject, first_line, body_excerpt)
+        result = TodoProcessor.generate_todo(openai_client, subject, first_line, body_excerpt)
         if not result:
             send_output("Failed to generate todo.")
             return False, ""
 
-        result = RtmTodoCreator.edit_todo(result)
+        result = TodoProcessor.edit_todo(result)
 
-        rules = config.get_processing_rules("self")
+        rules = self._config.get_processing_rules("self")
         subject_tag = rules[CFG_ADDITIONAL_SUBJECT_TAG]
 
-        extra = RtmTodoCreator.resolve_extra_tags(config, from_address, subject)
+        extra = self.resolve_extra_tags(from_address, subject)
         if extra:
             subject_tag = f"{subject_tag} {extra}"
 
-        subject_tag = RtmTodoCreator.edit_tags(subject_tag)
+        subject_tag = TodoProcessor.edit_tags(subject_tag)
 
         todo_text = result.rtm_text
 
@@ -167,9 +174,30 @@ class RtmTodoCreator:
         if confirm_choice == 1:  # Abort
             return False, todo_text
 
-        success, _ = RtmTodoCreator.send_todo(
-            smtp_client, config, todo_text, subject_tag, subject, from_address,
+        success, _ = self.send_todo(
+            todo_text, subject_tag, subject, from_address,
         )
         if success:
             send_output("Todo sent to RTM")
         return success, todo_text
+
+    def send_direct(self, title: str, priority: int = 3, due_date: str = "today") -> bool:
+        """Create and send a todo directly (no email context). Used by AI chat."""
+        result = TodoResult(title=title, priority=priority, due_date=due_date, assignee="self")
+        todo_text = result.rtm_text
+
+        rules = self._config.get_processing_rules("self")
+        subject_tag = rules[CFG_ADDITIONAL_SUBJECT_TAG]
+
+        success, _ = self.send_todo(
+            todo_text, subject_tag, original_subject="", original_sender="AI Chat",
+        )
+        if success:
+            send_output(f"Todo sent: {todo_text} {subject_tag}")
+        else:
+            send_output("Failed to send todo to RTM.")
+        return success
+
+
+# Backwards-compatible alias
+RtmTodoCreator = TodoProcessor

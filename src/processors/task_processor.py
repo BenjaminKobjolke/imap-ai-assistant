@@ -18,7 +18,7 @@ from src.constants import (
 from src.email.imap_client import EnhancedImapClient
 from src.email.smtp_client import SmtpClient
 from src.interaction.scheduler_prompts import scheduler_choose, scheduler_confirm, send_output
-from src.processors.rtm_todo import RtmTodoCreator
+from src.processors.rtm_todo import TodoProcessor
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +32,7 @@ class TaskProcessor:
         self.smtp_client = smtp_client
         self.openai_client = openai_client
         self.dry_run = dry_run
+        self._todo_processor = TodoProcessor(config)
 
     def process_single_email(self, imap_client: EnhancedImapClient, message_id: str, email_message) -> bool:
         """Process a single email message."""
@@ -57,7 +58,7 @@ class TaskProcessor:
 
             # Process with OpenAI
             logger.info("📨 About to call process_email_to_todo...")
-            result = RtmTodoCreator.generate_todo(self.openai_client, subject, first_line, body_excerpt)
+            result = TodoProcessor.generate_todo(self.openai_client, subject, first_line, body_excerpt)
             if not result:
                 logger.error(f"Failed to generate todo for message {message_id}")
                 return False
@@ -65,7 +66,7 @@ class TaskProcessor:
             logger.info(f"📨 process_email_to_todo completed, todo: {result.rtm_text}, assignee: {result.assignee}")
 
             # Let user review/edit todo fields individually
-            result = RtmTodoCreator.edit_todo(result)
+            result = TodoProcessor.edit_todo(result)
 
             # Let user review/edit assignee
             assignee_options = ["self", *self.config.get_other_people_names()]
@@ -85,12 +86,12 @@ class TaskProcessor:
             subject_tag = processing_rules[CFG_ADDITIONAL_SUBJECT_TAG]
 
             # Append extra tags from sender/keyword rules
-            extra_tags = RtmTodoCreator.resolve_extra_tags(self.config, email_message.from_address, subject)
+            extra_tags = self._todo_processor.resolve_extra_tags(email_message.from_address, subject)
             if extra_tags:
                 subject_tag = f"{subject_tag} {extra_tags}"
 
             # Let user edit tags
-            subject_tag = RtmTodoCreator.edit_tags(subject_tag)
+            subject_tag = TodoProcessor.edit_tags(subject_tag)
             assignee_email = processing_rules.get(CFG_EMAIL_ADDRESS, "")
             bcc_email = processing_rules.get("bcc", "")
 
@@ -119,8 +120,8 @@ class TaskProcessor:
                 logger.info("User declined sending todo to RTM — skipping")
                 return False
 
-            success, sent_message_bytes = RtmTodoCreator.send_todo(
-                self.smtp_client, self.config, todo_text, subject_tag,
+            success, sent_message_bytes = self._todo_processor.send_todo(
+                todo_text, subject_tag,
                 subject, email_message.from_address, task_tracking_headers,
             )
 

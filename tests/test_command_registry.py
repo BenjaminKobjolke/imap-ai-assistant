@@ -126,9 +126,9 @@ class TestCommandRegistry:
     """Tests for CommandRegistry populated via CommandExecutor."""
 
     def test_all_commands_registered(self, populated_registry: CommandRegistry) -> None:
-        """Verify all four commands are discovered from CommandExecutor."""
+        """Verify all five commands are discovered from CommandExecutor."""
         names = {cmd.name for cmd in populated_registry.all_commands()}
-        assert names == {"add_date", "inbox_zero", "search", "todays_meetings"}
+        assert names == {"add_date", "add_todo", "inbox_zero", "search", "todays_meetings"}
 
     def test_get_existing_command(self, populated_registry: CommandRegistry) -> None:
         """Verify get() returns the correct command."""
@@ -149,7 +149,7 @@ class TestCommandRegistry:
     def test_all_tools_returns_valid_schemas(self, populated_registry: CommandRegistry) -> None:
         """Verify all_tools() returns properly structured tool definitions."""
         tools = populated_registry.all_tools()
-        assert len(tools) == 4
+        assert len(tools) == 5
         for tool in tools:
             assert tool["type"] == "function"
             assert "name" in tool["function"]

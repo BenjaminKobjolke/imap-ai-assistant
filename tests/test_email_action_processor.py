@@ -13,7 +13,6 @@ from src.processors.action_result import ActionResult
 from src.processors.email_action_processor import EmailActionProcessor
 from src.search.search_cache import SearchCache
 
-
 # ---------------------------------------------------------------------------
 # Fixtures / helpers
 # ---------------------------------------------------------------------------
@@ -207,7 +206,7 @@ class TestExecuteTodo:
     """Tests for the todo action."""
 
     @patch("src.processors.email_action_processor.send_output")
-    @patch("src.processors.email_action_processor.RtmTodoCreator.create_and_send")
+    @patch("src.processors.email_action_processor.TodoProcessor.create_and_send")
     def test_todo_success(self, mock_create: MagicMock, _out: MagicMock) -> None:
         """Successful todo creation moves email to target folder."""
         proc = _processor()
@@ -224,7 +223,7 @@ class TestExecuteTodo:
         proc._client.client.move_to_folder.assert_called_once_with(99, "Company/@BKToDo")
 
     @patch("src.processors.email_action_processor.send_output")
-    @patch("src.processors.email_action_processor.RtmTodoCreator.create_and_send")
+    @patch("src.processors.email_action_processor.TodoProcessor.create_and_send")
     def test_todo_dry_run(self, mock_create: MagicMock, _out: MagicMock) -> None:
         """Dry-run todo returns success without moving."""
         proc = _processor()
@@ -237,9 +236,9 @@ class TestExecuteTodo:
         assert result == ActionResult(success=True, action_type="todoed")
         proc._client.client.move_to_folder.assert_not_called()
 
-    @patch("src.processors.email_action_processor.RtmTodoCreator.create_and_send")
+    @patch("src.processors.email_action_processor.TodoProcessor.create_and_send")
     def test_todo_creation_fails(self, mock_create: MagicMock) -> None:
-        """When RtmTodoCreator fails, result is skipped."""
+        """When TodoProcessor fails, result is skipped."""
         proc = _processor()
         mock_create.return_value = (False, "")
         msg_id = 33

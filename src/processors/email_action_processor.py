@@ -17,7 +17,7 @@ from src.email.imap_client import EnhancedImapClient
 from src.email.smtp_client import SmtpClient
 from src.interaction.scheduler_prompts import send_output
 from src.processors.action_result import ActionResult
-from src.processors.rtm_todo import RtmTodoCreator
+from src.processors.rtm_todo import TodoProcessor
 from src.search.folder_picker import folder_search_loop
 from src.search.search_cache import SearchCache
 
@@ -44,6 +44,7 @@ class EmailActionProcessor:
         self._smtp_client = smtp_client
         self._openai_client = openai_client
         self._cache = cache
+        self._todo_processor = TodoProcessor(config)
 
     # ------------------------------------------------------------------
     # Public API
@@ -136,8 +137,8 @@ class EmailActionProcessor:
         subject, first_line, body_excerpt = self._client.extract_email_content(email_msg)
         from_address = getattr(email_msg, "from_address", "") or ""
 
-        success, _todo_text = RtmTodoCreator.create_and_send(
-            self._openai_client, self._smtp_client, self._config,
+        success, _todo_text = self._todo_processor.create_and_send(
+            self._openai_client,
             subject, first_line, body_excerpt, from_address,
             dry_run=dry_run,
         )

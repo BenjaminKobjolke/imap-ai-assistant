@@ -214,6 +214,28 @@ class TestCommandExecutor:
         })
         processor.add_date.assert_called_once_with(["lunch", "12:00"])
 
+    def test_execute_add_todo_minimal(
+        self, executor: CommandExecutor, processor: MagicMock,
+    ) -> None:
+        """Verify add_todo with title only uses defaults (priority=3, due_date=today)."""
+        executor.execute("add_todo", {"title": "Buy milk"})
+        processor.add_todo.assert_called_once_with(
+            title="Buy milk", priority=3, due_date="today",
+        )
+
+    def test_execute_add_todo_full(
+        self, executor: CommandExecutor, processor: MagicMock,
+    ) -> None:
+        """Verify add_todo passes all parameters correctly."""
+        executor.execute("add_todo", {
+            "title": "Buy milk",
+            "priority": 2,
+            "due_date": "tomorrow",
+        })
+        processor.add_todo.assert_called_once_with(
+            title="Buy milk", priority=2, due_date="tomorrow",
+        )
+
     def test_execute_unknown_command(self, executor: CommandExecutor) -> None:
         """Verify unknown commands raise ValueError."""
         with pytest.raises(ValueError, match="Unknown command"):

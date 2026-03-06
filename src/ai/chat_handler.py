@@ -173,6 +173,23 @@ class CommandExecutor:
         )
 
     @ai_command(
+        name="add_todo",
+        description="Create a Remember the Milk todo task",
+        params=[
+            Param("title", "Title/name of the todo task", "string", required=True),
+            Param("priority", "Priority: 1 (very important), 2 (important), 3 (not so important)", "integer"),
+            Param("due_date", "Due date: 'today', 'tomorrow', or DD.MM.YYYY format", "string"),
+        ],
+    )
+    def add_todo(self, params: dict[str, Any]) -> None:
+        """Create an RTM todo with the given parameters."""
+        self._processor.add_todo(
+            title=params["title"],
+            priority=int(params.get("priority", 3)),
+            due_date=str(params.get("due_date", "today")),
+        )
+
+    @ai_command(
         name="todays_meetings",
         description="List today's meetings with start and end times",
     )
