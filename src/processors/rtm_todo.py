@@ -8,7 +8,7 @@ from src.ai.openai_client import OpenAIClient, TodoResult
 from src.config.settings import ConfigManager
 from src.constants import CFG_ADDITIONAL_SUBJECT_TAG
 from src.email.smtp_client import SmtpClient
-from src.interaction.scheduler_prompts import scheduler_ask, scheduler_choose, scheduler_confirm, send_output
+from src.interaction.scheduler_prompts import ask_or_accept, scheduler_ask, scheduler_choose, scheduler_confirm, send_output
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +32,7 @@ class RtmTodoCreator:
     @staticmethod
     def edit_todo(result: TodoResult) -> TodoResult:
         """Let the user edit each todo field individually."""
-        title = scheduler_ask("Title:", default=result.title)
+        title = ask_or_accept("Title:", default=result.title)
 
         priority_options = [
             "1 - very important",
@@ -46,10 +46,20 @@ class RtmTodoCreator:
         )
         priority = priority_index + 1
 
-        due_date = scheduler_ask(
-            "Due date (today/tomorrow/DD.MM.YYYY):",
-            default=result.due_date,
+        due_date_options = ["today", "tomorrow", "Edit"]
+        default_due = next(
+            (i for i, o in enumerate(due_date_options) if o == result.due_date),
+            0,
         )
+        due_choice = scheduler_choose(
+            f"Due date: {result.due_date}",
+            due_date_options,
+            default=default_due,
+        )
+        if due_choice == 2:  # Edit
+            due_date = scheduler_ask("Due date (DD.MM.YYYY):", default=result.due_date)
+        else:
+            due_date = due_date_options[due_choice]
 
         return TodoResult(
             title=title,
@@ -61,7 +71,7 @@ class RtmTodoCreator:
     @staticmethod
     def edit_tags(subject_tag: str) -> str:
         """Let the user edit the resolved tags string."""
-        return scheduler_ask("Tags:", default=subject_tag)
+        return ask_or_accept("Tags:", default=subject_tag)
 
     @staticmethod
     def resolve_extra_tags(config: ConfigManager, sender: str, subject: str) -> str:
@@ -149,7 +159,12 @@ class RtmTodoCreator:
             send_output(f"DRY RUN: would send '{todo_text} {subject_tag}'")
             return True, todo_text
 
-        if not scheduler_confirm(f"Send todo to RTM? [{todo_text} {subject_tag}]", default=True):
+        confirm_choice = scheduler_choose(
+            f"Send todo to RTM? [{todo_text} {subject_tag}]",
+            ["Accept", "Abort"],
+            default=0,
+        )
+        if confirm_choice == 1:  # Abort
             return False, todo_text
 
         success, _ = RtmTodoCreator.send_todo(

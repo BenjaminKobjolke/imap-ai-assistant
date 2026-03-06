@@ -135,6 +135,18 @@ class SchedulerChoice:
         return self._ABORT_ACTION
 
 
+def ask_or_accept(label: str, *, default: str) -> str:
+    """Show accept/edit choice, only prompt for text if user picks edit."""
+    action = scheduler_choose(
+        f"{label} {default}",
+        ["Accept", "Edit"],
+        default=0,
+    )
+    if action == 1:  # Edit
+        return scheduler_ask(label, default=default)
+    return default
+
+
 _capture_buffer: list[str] | None = None
 
 

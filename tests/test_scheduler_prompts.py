@@ -9,6 +9,7 @@ import pytest
 from src.interaction.scheduler_prompts import (
     SchedulerAbortError,
     SchedulerChoice,
+    ask_or_accept,
     is_interactive,
     scheduler_ask,
     scheduler_choose,
@@ -199,6 +200,27 @@ class TestSchedulerChoiceAbort:
         sc = SchedulerChoice("Action:", [("A", "a_key"), ("B", "b_key")], abort=True)
         result = sc.choose()
         assert result == "a_key"
+
+
+class TestAskOrAccept:
+    """Tests for ask_or_accept helper."""
+
+    @patch("src.interaction.scheduler_prompts.scheduler_ask")
+    @patch("src.interaction.scheduler_prompts.scheduler_choose", return_value=0)
+    def test_accept_returns_default(self, mock_choose: MagicMock, mock_ask: MagicMock) -> None:
+        """Picking 'Accept' (index 0) returns the default without calling scheduler_ask."""
+        result = ask_or_accept("Title:", default="My Todo")
+        assert result == "My Todo"
+        mock_choose.assert_called_once_with("Title: My Todo", ["Accept", "Edit"], default=0)
+        mock_ask.assert_not_called()
+
+    @patch("src.interaction.scheduler_prompts.scheduler_ask", return_value="Edited Title")
+    @patch("src.interaction.scheduler_prompts.scheduler_choose", return_value=1)
+    def test_edit_delegates_to_scheduler_ask(self, mock_choose: MagicMock, mock_ask: MagicMock) -> None:
+        """Picking 'Edit' (index 1) calls scheduler_ask and returns its value."""
+        result = ask_or_accept("Title:", default="My Todo")
+        assert result == "Edited Title"
+        mock_ask.assert_called_once_with("Title:", default="My Todo")
 
 
 class TestSchedulerOutput:
