@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
 
 # Ensure stdout/stderr can handle Unicode on Windows
@@ -16,6 +17,10 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
+
+# Suppress INFO logs when running under the scheduler bot
+if os.environ.get("TASK_SCHEDULER") == "1":
+    logging.getLogger().setLevel(logging.WARNING)
 
 # Suppress DEBUG logs from underlying libraries
 logging.getLogger('imap_client_lib').setLevel(logging.WARNING)
