@@ -24,14 +24,12 @@ class TestListTodaysMeetingsPrompt:
     """Tests for the interactive prompt in list_todays_meetings."""
 
     @patch("src.processors.meeting_cleanup._show_detail_fn")
-    @patch("src.processors.meeting_cleanup.SchedulerChoice")
     @patch("src.processors.meeting_cleanup.list_meetings")
     @patch.object(MeetingCleanup, "get_todays_meetings")
     def test_no_prompt_when_no_meetings(
         self,
         mock_get: MagicMock,
         mock_list: MagicMock,
-        mock_choice_cls: MagicMock,
         mock_detail: MagicMock,
     ) -> None:
         """Should not show prompt when meetings list is empty."""
@@ -42,54 +40,45 @@ class TestListTodaysMeetingsPrompt:
         MeetingCleanup.list_todays_meetings(client, config)
 
         mock_list.assert_called_once()
-        mock_choice_cls.assert_not_called()
         mock_detail.assert_not_called()
 
     @patch("src.processors.meeting_cleanup._show_detail_fn")
-    @patch("src.processors.meeting_cleanup.SchedulerChoice")
+    @patch("builtins.input", return_value="q")
     @patch("src.processors.meeting_cleanup.list_meetings")
     @patch.object(MeetingCleanup, "get_todays_meetings")
     def test_quit_exits_without_showing_detail(
         self,
         mock_get: MagicMock,
         mock_list: MagicMock,
-        mock_choice_cls: MagicMock,
+        mock_input: MagicMock,
         mock_detail: MagicMock,
     ) -> None:
-        """Selecting 'quit' should exit loop without calling show_detail."""
+        """Typing 'q' should exit loop without calling show_detail."""
         meetings = [_make_meeting(1, "Standup")]
         mock_get.return_value = meetings
-
-        mock_instance = MagicMock()
-        mock_instance.choose.return_value = "quit"
-        mock_choice_cls.return_value = mock_instance
 
         client = MagicMock()
         config = MagicMock()
 
         MeetingCleanup.list_todays_meetings(client, config)
 
-        mock_choice_cls.assert_called_once()
+        mock_input.assert_called_once()
         mock_detail.assert_not_called()
 
     @patch("src.processors.meeting_cleanup._show_detail_fn")
-    @patch("src.processors.meeting_cleanup.SchedulerChoice")
+    @patch("builtins.input", side_effect=["2", "q"])
     @patch("src.processors.meeting_cleanup.list_meetings")
     @patch.object(MeetingCleanup, "get_todays_meetings")
     def test_selecting_meeting_shows_detail(
         self,
         mock_get: MagicMock,
         mock_list: MagicMock,
-        mock_choice_cls: MagicMock,
+        mock_input: MagicMock,
         mock_detail: MagicMock,
     ) -> None:
         """Selecting a meeting index should call show_detail with that meeting."""
         meetings = [_make_meeting(1, "Standup"), _make_meeting(2, "Retro")]
         mock_get.return_value = meetings
-
-        mock_instance = MagicMock()
-        mock_instance.choose.side_effect = ["2", "quit"]
-        mock_choice_cls.return_value = mock_instance
 
         client = MagicMock()
         config = MagicMock()
@@ -99,23 +88,19 @@ class TestListTodaysMeetingsPrompt:
         mock_detail.assert_called_once_with(meetings[1])
 
     @patch("src.processors.meeting_cleanup._show_detail_fn")
-    @patch("src.processors.meeting_cleanup.SchedulerChoice")
+    @patch("builtins.input", side_effect=["1", "2", "q"])
     @patch("src.processors.meeting_cleanup.list_meetings")
     @patch.object(MeetingCleanup, "get_todays_meetings")
     def test_loop_allows_multiple_selections(
         self,
         mock_get: MagicMock,
         mock_list: MagicMock,
-        mock_choice_cls: MagicMock,
+        mock_input: MagicMock,
         mock_detail: MagicMock,
     ) -> None:
         """User can inspect multiple meetings before quitting."""
         meetings = [_make_meeting(1, "Standup"), _make_meeting(2, "Retro")]
         mock_get.return_value = meetings
-
-        mock_instance = MagicMock()
-        mock_instance.choose.side_effect = ["1", "2", "quit"]
-        mock_choice_cls.return_value = mock_instance
 
         client = MagicMock()
         config = MagicMock()
@@ -129,35 +114,23 @@ class TestListTodaysMeetingsPrompt:
         ])
 
     @patch("src.processors.meeting_cleanup._show_detail_fn")
-    @patch("src.processors.meeting_cleanup.SchedulerChoice")
+    @patch("builtins.input", return_value="")
     @patch("src.processors.meeting_cleanup.list_meetings")
     @patch.object(MeetingCleanup, "get_todays_meetings")
-    def test_prompt_includes_all_meetings_and_quit(
+    def test_empty_input_exits(
         self,
         mock_get: MagicMock,
         mock_list: MagicMock,
-        mock_choice_cls: MagicMock,
+        mock_input: MagicMock,
         mock_detail: MagicMock,
     ) -> None:
-        """SchedulerChoice should receive all meetings plus a Quit option."""
-        meetings = [_make_meeting(1, "Standup"), _make_meeting(2, "Retro")]
+        """Pressing Enter without input should exit the loop."""
+        meetings = [_make_meeting(1, "Standup")]
         mock_get.return_value = meetings
-
-        mock_instance = MagicMock()
-        mock_instance.choose.return_value = "quit"
-        mock_choice_cls.return_value = mock_instance
 
         client = MagicMock()
         config = MagicMock()
 
         MeetingCleanup.list_todays_meetings(client, config)
 
-        args, _kwargs = mock_choice_cls.call_args
-        prompt = args[0]
-        choices = args[1]
-
-        assert prompt == ""
-        assert len(choices) == 3  # 2 meetings + Quit
-        assert choices[0] == ("1. Standup", "1")
-        assert choices[1] == ("2. Retro", "2")
-        assert choices[2] == ("Quit", "quit")
+        mock_detail.assert_not_called()

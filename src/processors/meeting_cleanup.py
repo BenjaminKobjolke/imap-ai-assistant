@@ -9,7 +9,7 @@ from dateutil.tz import UTC as dateutil_UTC
 from dateutil.tz import gettz
 
 from src.constants import MIME_TEXT_CALENDAR
-from src.interaction.scheduler_prompts import SchedulerChoice, send_output
+from src.interaction.scheduler_prompts import send_output
 from src.processors.meeting_display import (
     extract_meeting_links as _extract_meeting_links_fn,
 )
@@ -21,6 +21,49 @@ from src.processors.meeting_display import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _gcal_event_to_meeting_dict(event: dict, cal_name: str) -> dict | None:
+    """Convert a Google Calendar API event to the meeting dict format."""
+    start_raw = event.get("start", {})
+    end_raw = event.get("end", {})
+
+    start_str = start_raw.get("dateTime")
+    if not start_str:
+        return None  # skip all-day events
+
+    start_dt = datetime.fromisoformat(start_str).astimezone()
+    end_str = end_raw.get("dateTime")
+    end_dt = datetime.fromisoformat(end_str).astimezone() if end_str else None
+
+    return {
+        "start": start_dt,
+        "end": end_dt,
+        "subject": event.get("summary", "(no title)"),
+        "email_message": None,
+        "ics_text": None,
+        "parsed": {
+            "dtstart": start_dt,
+            "dtend": end_dt,
+            "rrule": None,
+            "organizer": event.get("organizer", {}).get("displayName")
+            or event.get("organizer", {}).get("email"),
+            "location": event.get("location"),
+        },
+        "source": "gcal",
+        "gcal_event": event,
+        "calendar_name": cal_name,
+    }
+
+
+def _is_duplicate(imap_meeting: dict, gcal_meeting: dict) -> bool:
+    """Check if a gcal event matches an existing IMAP meeting."""
+    time_diff = abs((imap_meeting["start"] - gcal_meeting["start"]).total_seconds())
+    if time_diff > 300:  # 5 minutes
+        return False
+    subj_imap = imap_meeting["subject"].strip().lower()
+    subj_gcal = gcal_meeting["subject"].strip().lower()
+    return subj_imap == subj_gcal or subj_imap in subj_gcal or subj_gcal in subj_imap
 
 
 class MeetingCleanup:
@@ -311,11 +354,17 @@ class MeetingCleanup:
         send_output(f"  Checked: {total} | Moved: {moved} | Kept: {kept} | Skipped: {skipped}")
 
     @staticmethod
-    def get_todays_meetings(client, config, target_date: date | None = None) -> list[dict]:
+    def get_todays_meetings(
+        client,
+        config,
+        target_date: date | None = None,
+        gcal_client: object | None = None,
+    ) -> list[dict]:
         """Collect meetings for a given date as a list of dicts.
 
         Each dict has: index (1-based), start, end, subject, email_message,
-        ics_text, parsed.
+        ics_text, parsed, source.  When *gcal_client* is provided, Google
+        Calendar events are merged and deduplicated with IMAP meetings.
         """
         folder = config.meetings_folder
         today = target_date or date.today()
@@ -323,11 +372,9 @@ class MeetingCleanup:
         logger.info(f"Scanning '{folder}' for meetings on {today}")
 
         messages = client.client.get_all_messages(folder=folder)
-        if not messages:
-            return []
 
         todays: list[dict] = []
-        for _, email_message in messages:
+        for _, email_message in (messages or []):
             subject = email_message.subject or "(no subject)"
             try:
                 ics_data = MeetingCleanup._get_ics_data(email_message)
@@ -359,6 +406,7 @@ class MeetingCleanup:
                                 "email_message": email_message,
                                 "ics_text": ics_text,
                                 "parsed": parsed,
+                                "source": "imap",
                             })
                     except Exception as e:
                         logger.debug(f"Error expanding RRULE for '{subject}': {e}")
@@ -373,10 +421,20 @@ class MeetingCleanup:
                             "email_message": email_message,
                             "ics_text": ics_text,
                             "parsed": parsed,
+                            "source": "imap",
                         })
 
             except Exception as e:
                 logger.debug(f"Error checking '{subject}': {e}")
+
+        # -- Merge Google Calendar events --
+        if gcal_client is not None:
+            try:
+                todays = MeetingCleanup._merge_gcal_events(
+                    todays, gcal_client, config, today,
+                )
+            except Exception as e:
+                logger.warning(f"Failed to fetch Google Calendar events: {e}")
 
         todays.sort(key=lambda m: m["start"])
         for i, meeting in enumerate(todays, 1):
@@ -385,24 +443,89 @@ class MeetingCleanup:
         return todays
 
     @staticmethod
-    def list_todays_meetings(client, config, target_date: date | None = None) -> None:
+    def _merge_gcal_events(
+        imap_meetings: list[dict],
+        gcal_client: object,
+        config: object,
+        today: date,
+    ) -> list[dict]:
+        """Fetch Google Calendar events and merge with IMAP meetings."""
+        from dateutil.tz import tzlocal
+
+        local_tz = tzlocal()
+        day_start = datetime(today.year, today.month, today.day, 0, 0, 0, tzinfo=local_tz)
+        day_end = datetime(today.year, today.month, today.day, 23, 59, 59, tzinfo=local_tz)
+
+        calendar_ids: list[str] = [gcal_client.calendar_id]  # type: ignore[attr-defined]
+        calendar_ids.extend(config.free_check_calendar_ids)  # type: ignore[attr-defined]
+
+        # Build calendar name lookup
+        cal_names: dict[str, str] = {}
+        try:
+            for cal in gcal_client.list_calendars():  # type: ignore[attr-defined]
+                cal_names[cal.get("id", "")] = cal.get("summary", cal.get("id", ""))
+        except Exception:
+            pass
+
+        seen_event_ids: set[str] = set()
+        gcal_meetings: list[dict] = []
+        for cal_id in calendar_ids:
+            cal_name = cal_names.get(cal_id, cal_id)
+            events = gcal_client.list_events_in_range(cal_id, day_start, day_end)  # type: ignore[attr-defined]
+            for event in events:
+                event_id = event.get("id", "")
+                if event_id in seen_event_ids:
+                    continue
+                seen_event_ids.add(event_id)
+                meeting = _gcal_event_to_meeting_dict(event, cal_name)
+                if meeting is not None:
+                    gcal_meetings.append(meeting)
+
+        # Deduplicate: mark matching IMAP meetings as "both"
+        for gcal_m in gcal_meetings:
+            matched = False
+            for imap_m in imap_meetings:
+                if _is_duplicate(imap_m, gcal_m):
+                    imap_m["source"] = "both"
+                    imap_m.setdefault("gcal_event", gcal_m.get("gcal_event"))
+                    imap_m.setdefault("calendar_name", gcal_m.get("calendar_name"))
+                    matched = True
+                    break
+            if not matched:
+                imap_meetings.append(gcal_m)
+
+        return imap_meetings
+
+    @staticmethod
+    def list_todays_meetings(
+        client,
+        config,
+        target_date: date | None = None,
+        gcal_client: object | None = None,
+    ) -> None:
         """List meetings for a given date with interactive detail selection."""
         target = target_date or date.today()
-        meetings = MeetingCleanup.get_todays_meetings(client, config, target_date=target)
+        meetings = MeetingCleanup.get_todays_meetings(
+            client, config, target_date=target, gcal_client=gcal_client,
+        )
         list_meetings(meetings, target)
 
         if not meetings:
             return
 
+        max_idx = len(meetings)
         while True:
-            choice = SchedulerChoice(
-                "",
-                [(f"{m['index']}. {m['subject']}", str(m['index'])) for m in meetings]
-                + [("Quit", "quit")],
-            ).choose()
-            if choice == "quit":
+            raw = input(f"\nEnter meeting number [1-{max_idx}] or 'q' to quit: ").strip().lower()
+            if raw in ("q", "quit", ""):
                 break
-            _show_detail_fn(meetings[int(choice) - 1])
+            try:
+                idx = int(raw)
+                if 1 <= idx <= max_idx:
+                    _show_detail_fn(meetings[idx - 1])
+                else:
+                    send_output(f"  Please enter 1-{max_idx}")
+            except ValueError:
+                send_output(f"  Please enter 1-{max_idx}")
 
     @staticmethod
     def show_meeting_detail(client, config, index: int) -> None:

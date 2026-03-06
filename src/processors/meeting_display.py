@@ -65,6 +65,13 @@ def extract_meeting_links(email_message: object, ics_text: str | None) -> list[d
     return links
 
 
+_SOURCE_LABELS = {
+    "imap": "[IMAP]",
+    "gcal": "[GCal]",
+    "both": "[IMAP+GCal]",
+}
+
+
 def list_meetings(meetings: list[dict], target: date) -> None:
     """Print a formatted list of meetings for a given date."""
     if not meetings:
@@ -78,7 +85,9 @@ def list_meetings(meetings: list[dict], target: date) -> None:
     for m in meetings:
         start_str = m["start"].strftime("%H:%M")
         end_str = m["end"].strftime("%H:%M") if m["end"] else "??:??"
-        send_output(f"  {m['index']:>2}.  {start_str} - {end_str}  {m['subject']}")
+        source = _SOURCE_LABELS.get(m.get("source", ""), "")
+        source_suffix = f"  {source}" if source else ""
+        send_output(f"  {m['index']:>2}.  {start_str} - {end_str}  {m['subject']}{source_suffix}")
     send_output(f"\nTotal: {len(meetings)} meeting(s)")
 
 
@@ -87,15 +96,25 @@ def show_meeting_detail(meeting: dict) -> None:
     m = meeting
     start_str = m["start"].strftime("%H:%M")
     end_str = m["end"].strftime("%H:%M") if m["end"] else "??:??"
+    source = _SOURCE_LABELS.get(m.get("source", ""), "")
 
     organizer = m["parsed"].get("organizer") or "(unknown)"
     location = m["parsed"].get("location") or "(none)"
-    links = extract_meeting_links(m["email_message"], m["ics_text"])
+
+    # Extract links: for gcal-only meetings, build from gcal event data
+    if m.get("email_message") is not None:
+        links = extract_meeting_links(m["email_message"], m["ics_text"])
+    else:
+        links = _extract_gcal_links(m)
 
     send_output(f"\nMeeting #{m['index']}: {m['subject']}\n")
+    if source:
+        send_output(f"  Source:     {source}")
     send_output(f"  Time:       {start_str} - {end_str}")
     send_output(f"  Organizer:  {organizer}")
     send_output(f"  Location:   {location}")
+    if m.get("calendar_name"):
+        send_output(f"  Calendar:   {m['calendar_name']}")
 
     if links:
         send_output("\n  Links:")
@@ -120,6 +139,24 @@ def show_meeting_detail(meeting: dict) -> None:
             send_output("  Aborted.")
     else:
         send_output("\n  Links:      (none found)")
+
+
+def _extract_gcal_links(meeting: dict) -> list[dict[str, str]]:
+    """Extract meeting links from a Google Calendar event."""
+    links: list[dict[str, str]] = []
+    gcal_event = meeting.get("gcal_event")
+    if not gcal_event:
+        return links
+
+    hangout = gcal_event.get("hangoutLink")
+    if hangout:
+        links.append({"type": "Google Meet", "url": hangout})
+
+    location = gcal_event.get("location", "")
+    if location.startswith("http"):
+        links.append({"type": "Location link", "url": location})
+
+    return links
 
 
 def _pick_link_index(links: list[dict[str, str]]) -> int | None:

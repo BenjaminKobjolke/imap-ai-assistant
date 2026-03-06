@@ -393,6 +393,8 @@ class EmailProcessor:
 
     def meetings(self, date_str: str) -> None:
         """List meetings for a given date string."""
+        from src.calendar.google_calendar_client import GoogleCalendarClient
+
         try:
             target_date = MeetingCleanup._parse_date(date_str)
         except ValueError as e:
@@ -401,20 +403,38 @@ class EmailProcessor:
         client = self._connect_main_account()
         if not client:
             return
+
+        gcal_client = None
         try:
-            MeetingCleanup.list_todays_meetings(client, self.config, target_date=target_date)
+            gcal_client = GoogleCalendarClient.from_config(self.config)
+        except Exception:
+            logger.info("Google Calendar not available — showing IMAP meetings only")
+
+        try:
+            MeetingCleanup.list_todays_meetings(
+                client, self.config, target_date=target_date, gcal_client=gcal_client,
+            )
         except Exception as e:
             logger.error(f"Error listing meetings: {e}")
         finally:
             client.disconnect()
 
     def todays_meetings(self) -> None:
-        """List today's meetings from the meetings folder."""
+        """List today's meetings from the meetings folder and Google Calendar."""
+        from src.calendar.google_calendar_client import GoogleCalendarClient
+
         client = self._connect_main_account()
         if not client:
             return
+
+        gcal_client = None
         try:
-            MeetingCleanup.list_todays_meetings(client, self.config)
+            gcal_client = GoogleCalendarClient.from_config(self.config)
+        except Exception:
+            logger.info("Google Calendar not available — showing IMAP meetings only")
+
+        try:
+            MeetingCleanup.list_todays_meetings(client, self.config, gcal_client=gcal_client)
         except Exception as e:
             logger.error(f"Error listing today's meetings: {e}")
         finally:
