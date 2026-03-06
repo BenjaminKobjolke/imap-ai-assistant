@@ -93,7 +93,7 @@ class ResponseProcessor:
         logger.info(f"Processing response from assignee: {assignee_name}")
 
         # Extract email content
-        subject, first_line, body_excerpt = main_imap_client.extract_email_content(email_message)
+        _subject, _first_line, body_excerpt = main_imap_client.extract_email_content(email_message)
 
         # Find the original task by extracting task ID from response headers
         original_task = self._find_original_task(assignee_name, email_message)
@@ -195,7 +195,7 @@ class ResponseProcessor:
             if main_account_config:
                 temp_client = EnhancedImapClient(main_account_config)
                 try:
-                    subject, first_line, body_excerpt = temp_client.extract_email_content(response_email_message)
+                    _subject, _first_line, body_excerpt = temp_client.extract_email_content(response_email_message)
                     body_content = body_excerpt
                     preview = body_content[:200] if body_content else 'None'
                     logger.debug(f"Extracted body using extract_email_content: {preview}...")
@@ -363,7 +363,7 @@ class ResponseProcessor:
         """Extract email address from sender field."""
         try:
             from email.utils import parseaddr
-            name, email_addr = parseaddr(from_address)
+            _, email_addr = parseaddr(from_address)
             return email_addr if email_addr else None
         except Exception as e:
             logger.debug(f"Error parsing sender email from '{from_address}': {e}")

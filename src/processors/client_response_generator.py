@@ -173,7 +173,7 @@ class ClientResponseGenerator:
         try:
             footer_path = Path("data/footer.html")
             if footer_path.exists():
-                with open(footer_path, 'r', encoding='utf-8') as f:
+                with open(footer_path, encoding='utf-8') as f:
                     footer_html = f.read()
                 logger.debug("Footer HTML loaded successfully")
             else:

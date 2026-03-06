@@ -64,7 +64,7 @@ class RelationshipAnalyzer:
 
             # Search for the most recent email to this client
             # Messages are typically returned in reverse chronological order (newest first)
-            for msg_id, email_msg in recent_sent_messages:
+            for _msg_id, email_msg in recent_sent_messages:
                 if hasattr(email_msg, 'to') or hasattr(email_msg, 'to_address'):
                     # Check different possible attributes for recipient
                     to_address = getattr(email_msg, 'to', None) or getattr(email_msg, 'to_address', None)
@@ -73,7 +73,7 @@ class RelationshipAnalyzer:
                         # Found a sent email to this client
                         try:
                             # Extract first 500 characters of the email content
-                            subject, first_line, body_excerpt = main_imap_client.extract_email_content(email_msg)
+                            subject, _first_line, body_excerpt = main_imap_client.extract_email_content(email_msg)
 
                             # Strip any remaining HTML tags from the content
                             if body_excerpt:

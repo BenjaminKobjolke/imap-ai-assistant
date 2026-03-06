@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import logging
 import smtplib
-from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from typing import Dict, Optional
+from email.mime.text import MIMEText
+
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 logger = logging.getLogger(__name__)
@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 class SmtpClient:
     """SMTP client for sending emails to Remember the Milk."""
 
-    def __init__(self, smtp_config: Dict):
+    def __init__(self, smtp_config: dict):
         self.server = smtp_config.get("server", "")
         self.port = smtp_config.get("port", 587)
         self.use_tls = smtp_config.get("use_tls", True)
@@ -24,8 +24,8 @@ class SmtpClient:
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
     def send_email(
         self, to_email: str, subject: str, body: str,
-        from_email: Optional[str] = None,
-        custom_headers: Optional[Dict[str, str]] = None,
+        from_email: str | None = None,
+        custom_headers: dict[str, str] | None = None,
     ) -> tuple[bool, bytes | None]:
         """Send email with retry logic.
 
@@ -76,7 +76,7 @@ class SmtpClient:
 
     def send_rtm_todo(self, rtm_email: str, todo_text: str, subject_tag: str,
                       original_subject: str = "", original_sender: str = "",
-                      task_tracking_headers: Optional[Dict[str, str]] = None) -> tuple[bool, bytes | None]:
+                      task_tracking_headers: dict[str, str] | None = None) -> tuple[bool, bytes | None]:
         """Send todo to Remember the Milk with proper formatting.
 
         Returns a (success, message_bytes) tuple.

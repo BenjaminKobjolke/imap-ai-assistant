@@ -64,10 +64,7 @@ class EmailInspector:
         if has_calendar and "calendar.ics" not in attachment_names:
             attachment_names.append("calendar.ics (MIME part)")
 
-        if attachment_names:
-            att_str = f"{len(attachment_names)} ({', '.join(attachment_names)})"
-        else:
-            att_str = "none"
+        att_str = f"{len(attachment_names)} ({', '.join(attachment_names)})" if attachment_names else "none"
 
         _safe_print(f"\n--- Email {index}/{total} ---")
         _safe_print(f"  From:        {from_addr}")

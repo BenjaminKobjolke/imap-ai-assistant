@@ -81,7 +81,7 @@ class EnhancedImapClient:
         """Extract email address from 'From' field."""
         try:
             # Parse "Name <email@domain.com>" format
-            name, email_addr = parseaddr(from_field)
+            _, email_addr = parseaddr(from_field)
             return email_addr if email_addr else None
         except Exception as e:
             logger.debug(f"Error parsing email address from '{from_field}': {e}")

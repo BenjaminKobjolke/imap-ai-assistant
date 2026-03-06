@@ -5,7 +5,7 @@ import re
 from datetime import UTC, date, datetime, timedelta
 
 from dateutil.rrule import rrulestr
-from dateutil.tz import UTC as dateutil_UTC
+from dateutil.tz import UTC as DATEUTIL_UTC
 from dateutil.tz import gettz
 
 from src.constants import MIME_TEXT_CALENDAR
@@ -142,19 +142,13 @@ class MeetingCleanup:
         if tz_m:
             tz = gettz(tz_m.group(1))
         elif value.endswith('Z'):
-            tz = dateutil_UTC
+            tz = DATEUTIL_UTC
             value = value[:-1]
 
         # Parse datetime value
         try:
-            if 'T' in value:
-                dt = datetime.strptime(value, '%Y%m%dT%H%M%S')
-            else:
-                dt = datetime.strptime(value, '%Y%m%d')
-            if tz:
-                dt = dt.replace(tzinfo=tz)
-            else:
-                dt = dt.replace(tzinfo=dateutil_UTC)
+            dt = datetime.strptime(value, '%Y%m%dT%H%M%S') if 'T' in value else datetime.strptime(value, '%Y%m%d')
+            dt = dt.replace(tzinfo=tz) if tz else dt.replace(tzinfo=DATEUTIL_UTC)
             return dt
         except ValueError as e:
             logger.warning(f"Failed to parse {field} value '{value}': {e}")
@@ -323,12 +317,11 @@ class MeetingCleanup:
                     continue
 
                 # Recurring events: keep if they have future occurrences
-                if parsed.get('rrule'):
-                    if MeetingCleanup._has_future_occurrence(parsed, datetime.now(parsed['dtstart'].tzinfo)):
-                        logger.debug(f"Kept (recurring, has future occurrences): '{subject}'")
-                        kept += 1
-                        continue
-                    # RRULE expired — fall through to archive
+                if parsed.get('rrule') and MeetingCleanup._has_future_occurrence(parsed, datetime.now(parsed['dtstart'].tzinfo)):
+                    logger.debug(f"Kept (recurring, has future occurrences): '{subject}'")
+                    kept += 1
+                    continue
+                # RRULE expired — fall through to archive
 
                 meeting_dt = MeetingCleanup._normalize_to_utc(parsed['dtstart'])
 
