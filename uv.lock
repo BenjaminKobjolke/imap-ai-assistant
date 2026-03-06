@@ -1250,7 +1250,7 @@ wheels = [
 [[package]]
 name = "task-scheduler-sdk"
 version = "0.1.0"
-source = { git = "https://github.com/BenjaminKobjolke/task-scheduler-sdk.git#ec6b69c8bbf9a0ab9d9db9964f7691c9b5e0ad7e" }
+source = { git = "https://github.com/BenjaminKobjolke/task-scheduler-sdk.git#ad4762fb527fb6792059bf2e07731a79a5682929" }
 
 [[package]]
 name = "tenacity"
