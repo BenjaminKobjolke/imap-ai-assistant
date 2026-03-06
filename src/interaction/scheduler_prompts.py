@@ -148,19 +148,25 @@ def ask_or_accept(label: str, *, default: str) -> str:
 
 
 _capture_buffer: list[str] | None = None
+_capture_silent: bool = False
 
 
-def start_output_capture() -> None:
-    """Begin capturing send_output calls into a buffer."""
-    global _capture_buffer
+def start_output_capture(*, silent: bool = False) -> None:
+    """Begin capturing send_output calls into a buffer.
+
+    When *silent* is True, captured text is **not** printed to the user.
+    """
+    global _capture_buffer, _capture_silent
     _capture_buffer = []
+    _capture_silent = silent
 
 
 def stop_output_capture() -> str:
     """Stop capturing and return all captured text joined by newlines."""
-    global _capture_buffer
+    global _capture_buffer, _capture_silent
     result = "\n".join(_capture_buffer) if _capture_buffer else ""
     _capture_buffer = None
+    _capture_silent = False
     return result
 
 
@@ -173,6 +179,8 @@ def send_output(text: str) -> None:
     """
     if _capture_buffer is not None:
         _capture_buffer.append(text)
+        if _capture_silent:
+            return
     if is_interactive():
         output(text)
     else:

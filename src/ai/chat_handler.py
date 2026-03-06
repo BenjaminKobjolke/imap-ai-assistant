@@ -22,6 +22,7 @@ from src.interaction.scheduler_prompts import (
     stop_output_capture,
 )
 from src.logging.app_logger import ApplicationLogger
+from src.logging.chat_conversation_logger import ChatConversationLogger
 from src.logging.chat_error_logger import ChatErrorLogger
 
 logger = logging.getLogger(__name__)
@@ -205,7 +206,7 @@ class CommandExecutor:
     )
     def todays_meetings(self, params: dict[str, Any]) -> None:
         """Execute today's meetings listing."""
-        self._processor.todays_meetings()
+        self._processor.todays_meetings(interactive=False)
 
     @ai_command(
         name="meetings",
@@ -221,7 +222,7 @@ class CommandExecutor:
     )
     def meetings(self, params: dict[str, Any]) -> None:
         """List meetings for a specific date."""
-        self._processor.meetings(date_str=params["date_str"])
+        self._processor.meetings(date_str=params["date_str"], interactive=False)
 
     @ai_command(
         name="meeting_detail",
@@ -303,6 +304,7 @@ class ChatHandler:
         self._session = ChatSession(max_history=max_hist)
         log_dir = config.log_dir if config else "logs"
         self._error_logger = ChatErrorLogger(log_dir)
+        self._conversation_logger = ChatConversationLogger(log_dir)
 
     def run(self, initial_message: str | None = None) -> None:
         """Main conversational loop."""
@@ -394,11 +396,21 @@ class ChatHandler:
         Returns ``True`` when the chat loop should exit.
         """
         self._session.add_message("user", user_input)
+        self._conversation_logger.log("USER", user_input)
         send_output("AI: Thinking...")
         logger.debug("Phase 1: detecting intent for input: %s", user_input)
 
         intent = self._phase1_detect_intent()
         logger.debug("Phase 1 result: %s", intent)
+        if intent:
+            self._conversation_logger.log(
+                "PHASE1_INTENT",
+                json.dumps({
+                    "command": intent.command_name,
+                    "parameters": intent.parameters,
+                    "summary": intent.summary,
+                }),
+            )
 
         if intent is None:
             send_output("AI: I'm sorry, I couldn't understand that. Could you rephrase?")
@@ -422,6 +434,12 @@ class ChatHandler:
         validated = self._phase2_validate_parameters(intent)
         logger.debug("Phase 2 result: %s", validated)
 
+        if validated:
+            self._conversation_logger.log(
+                "PHASE2_VALIDATED",
+                f"{validated.command_name}({json.dumps(validated.parameters)})",
+            )
+
         if validated is None:
             send_output("AI: I had trouble validating the parameters. Let's try again.")
             self._session.clear_for_new_request()
@@ -430,7 +448,7 @@ class ChatHandler:
 
         # Skip confirmation for auto-execute commands (e.g. exit)
         if validated.command_name in self._AUTO_EXECUTE_COMMANDS:
-            return self._execute_command(validated)
+            return self._execute_command(validated, user_input)
 
         # Confirm, edit, or cancel
         action = self._confirm_or_edit(validated)
@@ -462,7 +480,7 @@ class ChatHandler:
             return self._handle_user_input(modification)
 
         # action == "execute"
-        return self._execute_command(validated)
+        return self._execute_command(validated, user_input)
 
     def _phase1_detect_intent(self) -> DetectedIntent | None:
         """Phase 1: Use regular chat completion to detect intent."""
@@ -537,14 +555,16 @@ class ChatHandler:
 
     _ERROR_KEYWORDS = ("unrecognised", "failed", "error")
 
-    def _execute_command(self, command: ValidatedCommand) -> bool:
+    def _execute_command(
+        self, command: ValidatedCommand, original_question: str = "",
+    ) -> bool:
         """Execute the validated command, logging errors to the session log.
 
         Returns ``True`` when the chat loop should exit.
         """
         send_output(f"\nAI: Executing {command.command_name}...")
 
-        start_output_capture()
+        start_output_capture(silent=True)
         try:
             self._executor.execute(command.command_name, command.parameters)
         except ExitChatError:
@@ -575,10 +595,37 @@ class ChatHandler:
                 error=captured.strip(),
             )
 
+        self._conversation_logger.log("COMMAND_OUTPUT", captured.strip() if captured else "(empty)")
+
         result_summary = f"Executed {command.command_name} with parameters: {json.dumps(command.parameters)}"
         if captured:
             result_summary += f"\nOutput: {captured.strip()}"
         self._session.add_message("assistant", result_summary)
 
+        # Phase 3: Interpret output
+        if captured.strip() and original_question:
+            interpretation = self._phase3_interpret_output(
+                original_question, captured,
+            )
+            if interpretation:
+                self._conversation_logger.log("PHASE3_INTERPRETATION", interpretation)
+                self._session.add_message("assistant", interpretation)
+                send_output(f"\nAI: {interpretation}")
+                self._conversation_logger.log("SHOWN_TO_USER", interpretation)
+                send_output("\nWhat else can I do for you?")
+                return False
+
+        # Fallback: show raw output if interpretation failed or not applicable
+        if captured.strip():
+            send_output(captured)
         send_output("\nAI: Done! What else can I do for you?")
         return False
+
+    def _phase3_interpret_output(
+        self, original_question: str, captured_output: str,
+    ) -> str | None:
+        """Phase 3: Ask AI to interpret command output for the user's question."""
+        return self._openai.ai_chat_interpret_output(
+            user_question=original_question,
+            command_output=captured_output,
+        )

@@ -25,6 +25,7 @@ class PromptLoader:
         self.salutation_user_prompt_template = ""
         self.ai_chat_system_prompt = ""
         self.ai_chat_function_prompt = ""
+        self.ai_chat_interpret_prompt = ""
         self._load()
 
     def _load(self) -> None:
@@ -76,6 +77,9 @@ class PromptLoader:
             )
             self.ai_chat_function_prompt = self._read_optional(
                 "prompts/ai_chat_function_prompt.txt",
+            )
+            self.ai_chat_interpret_prompt = self._read_optional(
+                "prompts/ai_chat_interpret_prompt.txt",
             )
 
         except Exception as e:

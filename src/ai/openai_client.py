@@ -12,7 +12,10 @@ from openai import OpenAI
 from src.ai.prompt_loader import PromptLoader
 from src.constants import (
     AI_CHAT_INTENT_TEMPERATURE,
+    AI_CHAT_INTERPRET_TEMPERATURE,
     AI_CHAT_MAX_INTENT_TOKENS,
+    AI_CHAT_MAX_INTERPRET_TOKENS,
+    AI_CHAT_MAX_OUTPUT_CHARS,
     AI_CHAT_MAX_VALIDATE_TOKENS,
     AI_CHAT_TIMEOUT,
     AI_CHAT_VALIDATE_TEMPERATURE,
@@ -900,4 +903,89 @@ class OpenAIClient:
                     request_id, "ai_chat_validate", e,
                     {"command": command_name},
                 )
+            return None
+
+    def ai_chat_interpret_output(
+        self,
+        user_question: str,
+        command_output: str,
+    ) -> str | None:
+        """Phase 3: Interpret command output to answer the user's question.
+
+        Returns a human-readable interpretation string, or None on failure.
+        """
+        request_id = None
+        start_time = time.time()
+
+        try:
+            truncated_output = command_output[:AI_CHAT_MAX_OUTPUT_CHARS]
+
+            user_content = (
+                f"Original question: {user_question}\n\n"
+                f"Command output:\n{truncated_output}"
+            )
+
+            messages = [
+                {"role": "system", "content": self._prompts.ai_chat_interpret_prompt},
+                {"role": "user", "content": user_content},
+            ]
+
+            logger.debug(
+                "ai_chat_interpret_output: sending interpretation request, output_len=%d",
+                len(truncated_output),
+            )
+
+            if self.app_logger:
+                request_data = {
+                    "user_question": user_question,
+                    "output_length": len(truncated_output),
+                }
+                metadata = {
+                    "model": self.model,
+                    "max_completion_tokens": AI_CHAT_MAX_INTERPRET_TOKENS,
+                    "temperature": AI_CHAT_INTERPRET_TEMPERATURE,
+                }
+                request_id = self.app_logger.log_ai_request(
+                    "ai_chat_interpret", request_data, metadata,
+                )
+
+            response = self.client.chat.completions.create(  # type: ignore[call-overload]
+                model=self.model,
+                messages=messages,
+                max_completion_tokens=AI_CHAT_MAX_INTERPRET_TOKENS,
+                temperature=AI_CHAT_INTERPRET_TEMPERATURE,
+                timeout=AI_CHAT_TIMEOUT,
+            )
+
+            if (
+                response.choices
+                and response.choices[0].message
+                and response.choices[0].message.content
+            ):
+                content = response.choices[0].message.content.strip()
+                logger.debug("AI chat interpret response: %s", content)
+
+                if self.app_logger and request_id:
+                    processing_time = time.time() - start_time
+                    tokens_used = {
+                        "prompt_tokens": response.usage.prompt_tokens if response.usage else 0,
+                        "completion_tokens": response.usage.completion_tokens if response.usage else 0,
+                        "total_tokens": response.usage.total_tokens if response.usage else 0,
+                    }
+                    self.app_logger.log_ai_response(
+                        request_id, "ai_chat_interpret",
+                        content, processing_time, tokens_used,
+                    )
+
+                return str(content)
+
+            logger.error("No response content from OpenAI for output interpretation")
+            return None
+
+        except Exception as e:
+            logger.error("Error interpreting output: %s", e, exc_info=True)
+            if self.app_logger:
+                if not request_id:
+                    request_id = str(time.time())
+                self.app_logger.log_ai_error(request_id, "ai_chat_interpret", e)
             return None
