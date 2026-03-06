@@ -220,7 +220,7 @@ class TestCommandExecutor:
         """Verify add_todo with title only uses defaults (priority=3, due_date=today)."""
         executor.execute("add_todo", {"title": "Buy milk"})
         processor.add_todo.assert_called_once_with(
-            title="Buy milk", priority=3, due_date="today",
+            title="Buy milk", priority=3, due_date="today", due_time="",
         )
 
     def test_execute_add_todo_full(
@@ -233,7 +233,21 @@ class TestCommandExecutor:
             "due_date": "tomorrow",
         })
         processor.add_todo.assert_called_once_with(
-            title="Buy milk", priority=2, due_date="tomorrow",
+            title="Buy milk", priority=2, due_date="tomorrow", due_time="",
+        )
+
+    def test_execute_add_todo_with_time(
+        self, executor: CommandExecutor, processor: MagicMock,
+    ) -> None:
+        """Verify add_todo passes due_time through to processor."""
+        executor.execute("add_todo", {
+            "title": "Morning jog",
+            "priority": 1,
+            "due_date": "tomorrow",
+            "due_time": "08:00",
+        })
+        processor.add_todo.assert_called_once_with(
+            title="Morning jog", priority=1, due_date="tomorrow", due_time="08:00",
         )
 
     def test_execute_unknown_command(self, executor: CommandExecutor) -> None:

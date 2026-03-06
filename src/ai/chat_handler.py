@@ -179,6 +179,7 @@ class CommandExecutor:
             Param("title", "Title/name of the todo task", "string", required=True),
             Param("priority", "Priority: 1 (very important), 2 (important), 3 (not so important)", "integer"),
             Param("due_date", "Due date: 'today', 'tomorrow', or DD.MM.YYYY format", "string"),
+            Param("due_time", "Due time in HH:MM format (e.g. '08:00', '14:30')", "string"),
         ],
     )
     def add_todo(self, params: dict[str, Any]) -> None:
@@ -187,6 +188,7 @@ class CommandExecutor:
             title=params["title"],
             priority=int(params.get("priority", 3)),
             due_date=str(params.get("due_date", "today")),
+            due_time=str(params.get("due_time") or ""),
         )
 
     @ai_command(

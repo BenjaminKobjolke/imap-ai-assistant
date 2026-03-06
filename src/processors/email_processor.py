@@ -568,11 +568,11 @@ class EmailProcessor:
 
     # -- Todo delegation -----------------------------------------------------------
 
-    def add_todo(self, title: str, priority: int = 3, due_date: str = "today") -> None:
+    def add_todo(self, title: str, priority: int = 3, due_date: str = "today", due_time: str = "") -> None:
         """Create and send a todo directly to RTM."""
         from src.processors.rtm_todo import TodoProcessor
         todo_proc = TodoProcessor(self.config)
-        todo_proc.send_direct(title, priority, due_date)
+        todo_proc.send_direct(title, priority, due_date, due_time)
 
     # -- AI chat delegation --------------------------------------------------------
 

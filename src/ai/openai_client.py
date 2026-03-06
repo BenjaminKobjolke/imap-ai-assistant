@@ -43,11 +43,13 @@ class TodoResult:
     priority: int
     due_date: str
     assignee: str
+    due_time: str = ""
 
     @property
     def rtm_text(self) -> str:
-        """Assemble into RTM format: 'Title !priority ^due_date'."""
-        return f"{self.title} !{self.priority} ^{self.due_date}"
+        """Assemble into RTM format: 'Title !priority ^due_date [HH:MM]'."""
+        time_part = f" {self.due_time}" if self.due_time else ""
+        return f"{self.title} !{self.priority} ^{self.due_date}{time_part}"
 
 
 class OpenAIClient:

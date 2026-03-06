@@ -181,9 +181,9 @@ class TodoProcessor:
             send_output("Todo sent to RTM")
         return success, todo_text
 
-    def send_direct(self, title: str, priority: int = 3, due_date: str = "today") -> bool:
+    def send_direct(self, title: str, priority: int = 3, due_date: str = "today", due_time: str = "") -> bool:
         """Create and send a todo directly (no email context). Used by AI chat."""
-        result = TodoResult(title=title, priority=priority, due_date=due_date, assignee="self")
+        result = TodoResult(title=title, priority=priority, due_date=due_date, assignee="self", due_time=due_time)
         todo_text = result.rtm_text
 
         rules = self._config.get_processing_rules("self")
