@@ -19,7 +19,7 @@ logging.basicConfig(
 )
 
 # Suppress INFO logs when running under the scheduler bot
-if os.environ.get("TASK_SCHEDULER") == "1":
+if os.environ.get("INTERACTIVE") == "1":
     logging.getLogger().setLevel(logging.WARNING)
 
 # Suppress DEBUG logs from underlying libraries

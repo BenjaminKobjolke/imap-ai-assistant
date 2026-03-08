@@ -16,7 +16,7 @@ dependencies = [
     "google-auth>=2.23.0",
     "google-auth-oauthlib>=1.1.0",
     "google-auth-httplib2>=0.2.0",
-    "task-scheduler-sdk",
+    "interactions-sdk",
     "sqlalchemy>=2.0",
 ]
 
@@ -58,4 +58,4 @@ testpaths = ["tests"]
 pythonpath = ["."]
 
 [tool.uv.sources]
-task-scheduler-sdk = { git = "https://github.com/BenjaminKobjolke/task-scheduler-sdk.git" }
+interactions-sdk = { git = "https://github.com/BenjaminKobjolke/interactions-sdk.git" }

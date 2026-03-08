@@ -487,10 +487,10 @@ dependencies = [
     { name = "icalendar" },
     { name = "imap-client-lib" },
     { name = "imapclient" },
+    { name = "interactions-sdk" },
     { name = "openai" },
     { name = "python-dateutil" },
     { name = "sqlalchemy" },
-    { name = "task-scheduler-sdk" },
     { name = "tenacity" },
 ]
 
@@ -514,10 +514,10 @@ requires-dist = [
     { name = "icalendar", specifier = ">=5.0.0" },
     { name = "imap-client-lib", git = "https://github.com/BenjaminKobjolke/imap_client_python.git?rev=583328f" },
     { name = "imapclient", specifier = ">=3.0.1" },
+    { name = "interactions-sdk", git = "https://github.com/BenjaminKobjolke/interactions-sdk.git" },
     { name = "openai", specifier = ">=1.0.0" },
     { name = "python-dateutil", specifier = ">=2.8.0" },
     { name = "sqlalchemy", specifier = ">=2.0" },
-    { name = "task-scheduler-sdk", git = "https://github.com/BenjaminKobjolke/task-scheduler-sdk.git" },
     { name = "tenacity", specifier = ">=8.0.0" },
 ]
 
@@ -554,6 +554,11 @@ sdist = { url = "https://files.pythonhosted.org/packages/72/34/14ca021ce8e5dfedc
 wheels = [
     { url = "https://files.pythonhosted.org/packages/cb/b1/3846dd7f199d53cb17f49cba7e651e9ce294d8497c8c150530ed11865bb8/iniconfig-2.3.0-py3-none-any.whl", hash = "sha256:f631c04d2c48c52b84d0d0549c99ff3859c98df65b3101406327ecc7d53fbf12", size = 7484, upload-time = "2025-10-18T21:55:41.639Z" },
 ]
+
+[[package]]
+name = "interactions-sdk"
+version = "0.1.0"
+source = { git = "https://github.com/BenjaminKobjolke/interactions-sdk.git#20b88277de2b898ac1017013570691976f07b327" }
 
 [[package]]
 name = "jiter"
@@ -1246,11 +1251,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/d2/d7/1e073da7a4bc645eb83c76067284a0374e643bc4be57f14cc6414656f92c/sqlalchemy-2.0.48-cp314-cp314t-win_amd64.whl", hash = "sha256:d854b3970067297f3a7fbd7a4683587134aa9b3877ee15aa29eea478dc68f933", size = 2182198, upload-time = "2026-03-02T15:52:55.606Z" },
     { url = "https://files.pythonhosted.org/packages/46/2c/9664130905f03db57961b8980b05cab624afd114bf2be2576628a9f22da4/sqlalchemy-2.0.48-py3-none-any.whl", hash = "sha256:a66fe406437dd65cacd96a72689a3aaaecaebbcd62d81c5ac1c0fdbeac835096", size = 1940202, upload-time = "2026-03-02T15:52:43.285Z" },
 ]
-
-[[package]]
-name = "task-scheduler-sdk"
-version = "0.1.0"
-source = { git = "https://github.com/BenjaminKobjolke/task-scheduler-sdk.git#ad4762fb527fb6792059bf2e07731a79a5682929" }
 
 [[package]]
 name = "tenacity"

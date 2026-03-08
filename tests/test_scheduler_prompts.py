@@ -23,18 +23,18 @@ class TestIsInteractive:
 
     @patch.dict(os.environ, {}, clear=True)
     @patch("src.interaction.scheduler_prompts._SDK_AVAILABLE", True)
-    @patch("src.interaction.scheduler_prompts.is_run_by_task_scheduler", return_value=False)
+    @patch("src.interaction.scheduler_prompts.sdk_is_interactive", return_value=False)
     def test_returns_false_when_env_var_unset(self, mock_check: MagicMock) -> None:
-        """Should return False when TASK_SCHEDULER is not set."""
+        """Should return False when INTERACTIVE is not set."""
         assert is_interactive() is False
 
     @patch("src.interaction.scheduler_prompts._SDK_AVAILABLE", True)
-    @patch("src.interaction.scheduler_prompts.is_run_by_task_scheduler", return_value=True)
+    @patch("src.interaction.scheduler_prompts.sdk_is_interactive", return_value=True)
     def test_returns_true_when_scheduler_active(self, mock_check: MagicMock) -> None:
         """Should return True when SDK reports scheduler is active."""
         assert is_interactive() is True
 
-    @patch.dict(os.environ, {"TASK_SCHEDULER": "1"})
+    @patch.dict(os.environ, {"INTERACTIVE": "1"})
     @patch("src.interaction.scheduler_prompts._SDK_AVAILABLE", False)
     def test_graceful_degradation_without_sdk(self) -> None:
         """Should return False and log warning when SDK missing but env var set."""

@@ -1,6 +1,6 @@
-"""Thin wrapper around task-scheduler-sdk for interactive prompts.
+"""Thin wrapper around interactions-sdk for interactive prompts.
 
-When the app runs under the task scheduler (TASK_SCHEDULER=1), these functions
+When the app runs under the interactive scheduler (INTERACTIVE=1), these functions
 delegate to the SDK's confirm/ask/choose prompts. If the user does not answer
 in scheduler mode, a SchedulerAbortError is raised to abort the operation.
 
@@ -13,7 +13,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 try:
-    from task_scheduler_sdk import ask, choose, confirm, is_run_by_task_scheduler, output
+    from interactions_sdk import ask, choose, confirm, is_interactive as sdk_is_interactive, output
     _SDK_AVAILABLE = True
 except ImportError:
     _SDK_AVAILABLE = False
@@ -27,10 +27,10 @@ def is_interactive() -> bool:
     """Return True when running under the task scheduler with SDK available."""
     if not _SDK_AVAILABLE:
         import os
-        if os.environ.get("TASK_SCHEDULER") == "1":
-            logger.warning("TASK_SCHEDULER=1 is set but task-scheduler-sdk is not installed — falling back to console")
+        if os.environ.get("INTERACTIVE") == "1":
+            logger.warning("INTERACTIVE=1 is set but interactions-sdk is not installed — falling back to console")
         return False
-    return bool(is_run_by_task_scheduler())
+    return bool(sdk_is_interactive())
 
 
 def scheduler_confirm(message: str, *, default: bool) -> bool:
