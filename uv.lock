@@ -558,7 +558,7 @@ wheels = [
 [[package]]
 name = "interactions-sdk"
 version = "0.1.0"
-source = { git = "https://github.com/BenjaminKobjolke/interactions-sdk.git#20b88277de2b898ac1017013570691976f07b327" }
+source = { git = "https://github.com/BenjaminKobjolke/interactions-sdk.git#d386fc0a9c37f1d7f2e4e05812767374d367ed2d" }
 
 [[package]]
 name = "jiter"

@@ -1,4 +1,9 @@
-"""Tests for the scheduler prompts wrapper module."""
+"""Tests for the scheduler prompts re-export module.
+
+The actual interaction logic is tested in the interactions-sdk package.
+These tests verify that the re-exports work correctly and that the
+imap-specific aliases are properly wired up.
+"""
 from __future__ import annotations
 
 import os
@@ -15,227 +20,113 @@ from src.interaction.scheduler_prompts import (
     scheduler_choose,
     scheduler_confirm,
     send_output,
+    start_output_capture,
+    stop_output_capture,
 )
 
 
-class TestIsInteractive:
-    """Tests for the is_interactive helper."""
+class TestReExports:
+    """Verify that all re-exports point to the correct SDK objects."""
 
-    @patch.dict(os.environ, {}, clear=True)
-    @patch("src.interaction.scheduler_prompts._SDK_AVAILABLE", True)
-    @patch("src.interaction.scheduler_prompts.sdk_is_interactive", return_value=False)
-    def test_returns_false_when_env_var_unset(self, mock_check: MagicMock) -> None:
-        """Should return False when INTERACTIVE is not set."""
-        assert is_interactive() is False
+    def test_scheduler_abort_error_is_abort_error(self):
+        from interactions_sdk import AbortError
+        assert SchedulerAbortError is AbortError
 
-    @patch("src.interaction.scheduler_prompts._SDK_AVAILABLE", True)
-    @patch("src.interaction.scheduler_prompts.sdk_is_interactive", return_value=True)
-    def test_returns_true_when_scheduler_active(self, mock_check: MagicMock) -> None:
-        """Should return True when SDK reports scheduler is active."""
-        assert is_interactive() is True
+    def test_scheduler_choice_is_interaction_choice(self):
+        from interactions_sdk import InteractionChoice
+        assert SchedulerChoice is InteractionChoice
 
-    @patch.dict(os.environ, {"INTERACTIVE": "1"})
-    @patch("src.interaction.scheduler_prompts._SDK_AVAILABLE", False)
-    def test_graceful_degradation_without_sdk(self) -> None:
-        """Should return False and log warning when SDK missing but env var set."""
-        assert is_interactive() is False
+    def test_scheduler_confirm_is_confirm(self):
+        from interactions_sdk import confirm
+        assert scheduler_confirm is confirm
+
+    def test_scheduler_ask_is_ask(self):
+        from interactions_sdk import ask
+        assert scheduler_ask is ask
+
+    def test_scheduler_choose_is_choose(self):
+        from interactions_sdk import choose
+        assert scheduler_choose is choose
+
+    def test_send_output_is_output(self):
+        from interactions_sdk import output
+        assert send_output is output
+
+    def test_is_interactive_is_sdk_is_interactive(self):
+        from interactions_sdk import is_interactive as sdk_is_interactive
+        assert is_interactive is sdk_is_interactive
+
+    def test_ask_or_accept_is_sdk_ask_or_accept(self):
+        from interactions_sdk import ask_or_accept as sdk_ask_or_accept
+        assert ask_or_accept is sdk_ask_or_accept
+
+    def test_start_output_capture_is_sdk(self):
+        from interactions_sdk import start_output_capture as sdk_start
+        assert start_output_capture is sdk_start
+
+    def test_stop_output_capture_is_sdk(self):
+        from interactions_sdk import stop_output_capture as sdk_stop
+        assert stop_output_capture is sdk_stop
 
 
-class TestSchedulerConfirm:
-    """Tests for scheduler_confirm wrapper."""
+class TestAliasesWork:
+    """Smoke tests that the aliases actually work end-to-end."""
 
-    @patch("src.interaction.scheduler_prompts.is_interactive", return_value=False)
-    @patch("builtins.input", return_value="")
-    def test_returns_default_when_not_interactive(self, mock_input: MagicMock, mock_interactive: MagicMock) -> None:
-        """Should return default value when user presses Enter."""
-        assert scheduler_confirm("Continue?", default=True) is True
-        assert scheduler_confirm("Continue?", default=False) is False
-
-    @patch("src.interaction.scheduler_prompts.is_interactive", return_value=False)
     @patch("builtins.input", return_value="y")
-    def test_console_confirm_yes(self, mock_input: MagicMock, mock_interactive: MagicMock) -> None:
-        """Should return True when user types 'y' in console."""
-        assert scheduler_confirm("Continue?", default=False) is True
+    def test_scheduler_confirm_cli(self, mock_input: MagicMock):
+        env = os.environ.copy()
+        env.pop("INTERACTIVE", None)
+        with patch.dict(os.environ, env, clear=True):
+            assert scheduler_confirm("Continue?") is True
 
-    @patch("src.interaction.scheduler_prompts.is_interactive", return_value=False)
-    @patch("builtins.input", return_value="n")
-    def test_console_confirm_no(self, mock_input: MagicMock, mock_interactive: MagicMock) -> None:
-        """Should return False when user types 'n' in console."""
-        assert scheduler_confirm("Continue?", default=True) is False
+    @patch("builtins.input", return_value="hello")
+    def test_scheduler_ask_cli(self, mock_input: MagicMock):
+        env = os.environ.copy()
+        env.pop("INTERACTIVE", None)
+        with patch.dict(os.environ, env, clear=True):
+            assert scheduler_ask("Name:") == "hello"
 
-    @patch("src.interaction.scheduler_prompts.is_interactive", return_value=True)
-    @patch("src.interaction.scheduler_prompts.confirm", return_value=False)
-    def test_delegates_to_sdk_when_interactive(self, mock_confirm: MagicMock, mock_interactive: MagicMock) -> None:
-        """Should delegate to SDK confirm when interactive."""
-        result = scheduler_confirm("Deploy?", default=True)
-        assert result is False
-        mock_confirm.assert_called_once_with("Deploy?", default=True)
+    @patch("builtins.input", return_value="0")
+    @patch("builtins.print")
+    def test_scheduler_choose_cli(self, mock_print: MagicMock, mock_input: MagicMock):
+        env = os.environ.copy()
+        env.pop("INTERACTIVE", None)
+        with patch.dict(os.environ, env, clear=True):
+            assert scheduler_choose("Pick:", ["a", "b"], default=0) == 0
 
-    @patch("src.interaction.scheduler_prompts.is_interactive", return_value=True)
-    @patch("src.interaction.scheduler_prompts.confirm", return_value=None)
-    def test_aborts_when_sdk_returns_none(self, mock_confirm: MagicMock, mock_interactive: MagicMock) -> None:
-        """Should raise SchedulerAbortError when SDK returns None."""
+    @patch("builtins.print")
+    def test_send_output_cli(self, mock_print: MagicMock):
+        env = os.environ.copy()
+        env.pop("INTERACTIVE", None)
+        with patch.dict(os.environ, env, clear=True):
+            send_output("hello world")
+        mock_print.assert_called_once_with("hello world")
+
+    def test_scheduler_abort_error_is_catchable(self):
         with pytest.raises(SchedulerAbortError):
-            scheduler_confirm("Continue?", default=True)
+            raise SchedulerAbortError("test")
 
-
-class TestSchedulerAsk:
-    """Tests for scheduler_ask wrapper."""
-
-    @patch("src.interaction.scheduler_prompts.is_interactive", return_value=False)
-    @patch("builtins.input", return_value="")
-    def test_returns_default_when_not_interactive(self, mock_input: MagicMock, mock_interactive: MagicMock) -> None:
-        """Should return default value when user presses Enter."""
-        assert scheduler_ask("Enter name:", default="hello") == "hello"
-
-    @patch("src.interaction.scheduler_prompts.is_interactive", return_value=False)
-    @patch("builtins.input", return_value="custom text")
-    def test_console_ask_custom(self, mock_input: MagicMock, mock_interactive: MagicMock) -> None:
-        """Should return user input when typed in console."""
-        assert scheduler_ask("Enter name:", default="default") == "custom text"
-
-    @patch("src.interaction.scheduler_prompts.is_interactive", return_value=True)
-    @patch("src.interaction.scheduler_prompts.ask", return_value="custom text")
-    def test_delegates_to_sdk_when_interactive(self, mock_ask: MagicMock, mock_interactive: MagicMock) -> None:
-        """Should delegate to SDK ask when interactive."""
-        result = scheduler_ask("Enter name:", default="default")
-        assert result == "custom text"
-        mock_ask.assert_called_once_with("Enter name:", default="default")
-
-    @patch("src.interaction.scheduler_prompts.is_interactive", return_value=True)
-    @patch("src.interaction.scheduler_prompts.ask", return_value=None)
-    def test_aborts_when_sdk_returns_none(self, mock_ask: MagicMock, mock_interactive: MagicMock) -> None:
-        """Should raise SchedulerAbortError when SDK returns None."""
-        with pytest.raises(SchedulerAbortError):
-            scheduler_ask("Enter name:", default="default")
-
-
-class TestSchedulerChoose:
-    """Tests for scheduler_choose wrapper."""
-
-    @patch("src.interaction.scheduler_prompts.is_interactive", return_value=False)
-    @patch("builtins.input", return_value="")
-    @patch("builtins.print")
-    def test_returns_default_when_not_interactive(
-        self, mock_print: MagicMock, mock_input: MagicMock, mock_interactive: MagicMock,
-    ) -> None:
-        """Should return default index when user presses Enter."""
-        assert scheduler_choose("Pick:", ["a", "b", "c"], default=1) == 1
-
-    @patch("src.interaction.scheduler_prompts.is_interactive", return_value=False)
-    @patch("builtins.input", return_value="2")
-    @patch("builtins.print")
-    def test_console_choose_custom(
-        self, mock_print: MagicMock, mock_input: MagicMock, mock_interactive: MagicMock,
-    ) -> None:
-        """Should return selected index when user types a number."""
-        assert scheduler_choose("Pick:", ["a", "b", "c"], default=0) == 2
-
-    @patch("src.interaction.scheduler_prompts.is_interactive", return_value=True)
-    @patch("src.interaction.scheduler_prompts.choose", return_value=2)
-    def test_delegates_to_sdk_when_interactive(self, mock_choose: MagicMock, mock_interactive: MagicMock) -> None:
-        """Should delegate to SDK choose when interactive."""
-        result = scheduler_choose("Pick env:", ["dev", "staging", "prod"], default=0)
-        assert result == 2
-        mock_choose.assert_called_once_with("Pick env:", ["dev", "staging", "prod"], default=0, hidden_options=None)
-
-    @patch("src.interaction.scheduler_prompts.is_interactive", return_value=True)
-    @patch("src.interaction.scheduler_prompts.choose", return_value=None)
-    def test_aborts_when_sdk_returns_none(self, mock_choose: MagicMock, mock_interactive: MagicMock) -> None:
-        """Should raise SchedulerAbortError when SDK returns None."""
-        with pytest.raises(SchedulerAbortError):
-            scheduler_choose("Pick:", ["a", "b"], default=0)
-
-
-class TestSchedulerChooseHiddenOptions:
-    """Tests for hidden_options support in scheduler_choose."""
-
-    @patch("src.interaction.scheduler_prompts.is_interactive", return_value=True)
-    @patch("src.interaction.scheduler_prompts.choose", return_value=3)
-    def test_passes_hidden_options_to_sdk(self, mock_choose: MagicMock, mock_interactive: MagicMock) -> None:
-        """Should forward hidden_options to the SDK choose call."""
-        hidden = {"a": "Abort"}
-        scheduler_choose("Pick:", ["x", "y"], default=0, hidden_options=hidden)
-        mock_choose.assert_called_once_with("Pick:", ["x", "y"], default=0, hidden_options=hidden)
-
-    @patch("src.interaction.scheduler_prompts.is_interactive", return_value=False)
-    @patch("builtins.input", return_value="a")
-    @patch("builtins.print")
-    def test_console_hidden_shortcut_returns_offset_index(
-        self, mock_print: MagicMock, mock_input: MagicMock, mock_interactive: MagicMock,
-    ) -> None:
-        """Typing a hidden shortcut key should return len(options) + position."""
-        result = scheduler_choose("Pick:", ["x", "y"], default=0, hidden_options={"a": "Abort"})
-        assert result == 2  # len(["x", "y"]) + 0
-
-    @patch("src.interaction.scheduler_prompts.is_interactive", return_value=False)
-    @patch("builtins.input", return_value="")
-    @patch("builtins.print")
-    def test_console_shows_hidden_hint(
-        self, mock_print: MagicMock, mock_input: MagicMock, mock_interactive: MagicMock,
-    ) -> None:
-        """Hidden options should produce a hint line like (a=Abort)."""
-        scheduler_choose("Pick:", ["x", "y"], default=0, hidden_options={"a": "Abort"})
-        printed = [str(c) for c in mock_print.call_args_list]
-        assert any("a=Abort" in line for line in printed)
-
-
-class TestSchedulerChoiceAbort:
-    """Tests for SchedulerChoice abort flag."""
-
-    @patch("src.interaction.scheduler_prompts.scheduler_choose", return_value=2)
-    def test_abort_returns_abort_action(self, mock_choose: MagicMock) -> None:
-        """SchedulerChoice(abort=True) returns 'abort' when hidden option is selected."""
-        sc = SchedulerChoice("Action:", [("A", "a_key"), ("B", "b_key")], abort=True)
-        result = sc.choose()
-        assert result == "abort"
-        # Verify hidden_options was passed
-        mock_choose.assert_called_once_with(
-            "Action:", ["A", "B"], default=0, hidden_options={"a": "Abort"},
-        )
-
-    @patch("src.interaction.scheduler_prompts.scheduler_choose", return_value=0)
-    def test_normal_choice_still_works_with_abort(self, mock_choose: MagicMock) -> None:
-        """Normal selection should return the correct action key even with abort enabled."""
-        sc = SchedulerChoice("Action:", [("A", "a_key"), ("B", "b_key")], abort=True)
+    @patch("interactions_sdk.choose", return_value=0)
+    def test_scheduler_choice_works(self, mock_choose: MagicMock):
+        sc = SchedulerChoice("Action:", [("A", "a_key"), ("B", "b_key")])
         result = sc.choose()
         assert result == "a_key"
 
+    @patch("interactions_sdk.ask", return_value="Edited")
+    @patch("interactions_sdk.choose", return_value=1)
+    def test_ask_or_accept_edit(self, mock_choose: MagicMock, mock_ask: MagicMock):
+        result = ask_or_accept("Title:", default="Original")
+        assert result == "Edited"
 
-class TestAskOrAccept:
-    """Tests for ask_or_accept helper."""
-
-    @patch("src.interaction.scheduler_prompts.scheduler_ask")
-    @patch("src.interaction.scheduler_prompts.scheduler_choose", return_value=0)
-    def test_accept_returns_default(self, mock_choose: MagicMock, mock_ask: MagicMock) -> None:
-        """Picking 'Accept' (index 0) returns the default without calling scheduler_ask."""
-        result = ask_or_accept("Title:", default="My Todo")
-        assert result == "My Todo"
-        mock_choose.assert_called_once_with("Title: My Todo", ["Accept", "Edit"], default=0)
-        mock_ask.assert_not_called()
-
-    @patch("src.interaction.scheduler_prompts.scheduler_ask", return_value="Edited Title")
-    @patch("src.interaction.scheduler_prompts.scheduler_choose", return_value=1)
-    def test_edit_delegates_to_scheduler_ask(self, mock_choose: MagicMock, mock_ask: MagicMock) -> None:
-        """Picking 'Edit' (index 1) calls scheduler_ask and returns its value."""
-        result = ask_or_accept("Title:", default="My Todo")
-        assert result == "Edited Title"
-        mock_ask.assert_called_once_with("Title:", default="My Todo")
-
-
-class TestSchedulerOutput:
-    """Tests for send_output wrapper."""
-
-    @patch("src.interaction.scheduler_prompts.is_interactive", return_value=False)
-    @patch("builtins.print")
-    def test_calls_print_when_not_interactive(self, mock_print: MagicMock, mock_interactive: MagicMock) -> None:
-        """Should call print() when not interactive."""
-        send_output("hello world")
-        mock_print.assert_called_once_with("hello world")
-
-    @patch("src.interaction.scheduler_prompts.is_interactive", return_value=True)
-    @patch("src.interaction.scheduler_prompts.output")
-    def test_delegates_to_sdk_when_interactive(self, mock_output: MagicMock, mock_interactive: MagicMock) -> None:
-        """Should delegate to SDK output() when interactive."""
-        send_output("status update")
-        mock_output.assert_called_once_with("status update")
+    def test_output_capture_round_trip(self):
+        import interactions_sdk as sdk
+        old_buf = sdk._capture_buffer
+        old_silent = sdk._capture_silent
+        try:
+            start_output_capture(silent=True)
+            send_output("captured line")
+            result = stop_output_capture()
+            assert result == "captured line"
+        finally:
+            sdk._capture_buffer = old_buf
+            sdk._capture_silent = old_silent
