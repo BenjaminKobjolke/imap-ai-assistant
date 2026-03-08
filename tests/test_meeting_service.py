@@ -1,4 +1,4 @@
-"""Tests for MeetingService, MeetingServiceInteractive, and MeetingServiceAI."""
+"""Tests for MeetingService and MeetingServiceInteractive."""
 
 from __future__ import annotations
 
@@ -9,7 +9,6 @@ import pytest
 from src.config.settings import ConfigManager
 from src.services.meeting_service import (
     MeetingService,
-    MeetingServiceAI,
     MeetingServiceInteractive,
 )
 
@@ -146,47 +145,3 @@ class TestMeetingServiceInteractive:
         assert call_kwargs.kwargs.get("target_date") == date(2026, 3, 10)
 
 
-class TestMeetingServiceAI:
-    """Tests for MeetingServiceAI."""
-
-    @patch("src.services.meeting_service.MeetingCleanup")
-    @patch("src.services.meeting_service.EnhancedImapClient")
-    def test_todays_meetings_passes_interactive_false(
-        self,
-        mock_imap_cls: MagicMock,
-        mock_cleanup: MagicMock,
-        config: MagicMock,
-    ) -> None:
-        """Verify todays_meetings passes interactive=False."""
-        mock_client = MagicMock()
-        mock_client.connect.return_value = True
-        mock_imap_cls.return_value = mock_client
-
-        service = MeetingServiceAI(config)
-        service.todays_meetings()
-
-        call_kwargs = mock_cleanup.list_todays_meetings.call_args
-        assert call_kwargs.kwargs.get("interactive") is False
-
-    @patch("src.services.meeting_service.MeetingCleanup")
-    @patch("src.services.meeting_service.EnhancedImapClient")
-    def test_meetings_passes_interactive_false(
-        self,
-        mock_imap_cls: MagicMock,
-        mock_cleanup: MagicMock,
-        config: MagicMock,
-    ) -> None:
-        """Verify meetings passes interactive=False."""
-        mock_client = MagicMock()
-        mock_client.connect.return_value = True
-        mock_imap_cls.return_value = mock_client
-
-        from datetime import date
-        mock_cleanup._parse_date.return_value = date(2026, 3, 10)
-
-        service = MeetingServiceAI(config)
-        service.meetings("10.03.2026")
-
-        call_kwargs = mock_cleanup.list_todays_meetings.call_args
-        assert call_kwargs.kwargs.get("interactive") is False
-        assert call_kwargs.kwargs.get("target_date") == date(2026, 3, 10)

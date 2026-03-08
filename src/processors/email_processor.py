@@ -9,14 +9,13 @@ from src.email.imap_client import EnhancedImapClient
 from src.email.smtp_client import SmtpClient
 from src.logging.app_logger import ApplicationLogger
 from src.processors.connection_tester import ConnectionTester
-from src.processors.invite_processor import InviteProcessor
 from src.processors.response_processor import ResponseProcessor
 from src.processors.tag_rules_wizard import TagRulesWizard
 from src.processors.task_processor import TaskProcessor
 from src.processors.workflow_runner import WorkflowRunner
-from src.services.calendar_service import CalendarServiceAI, CalendarServiceInteractive
+from src.services.calendar_service import CalendarServiceInteractive
 from src.services.email_service import EmailService
-from src.services.meeting_service import MeetingServiceAI, MeetingServiceInteractive
+from src.services.meeting_service import MeetingServiceInteractive
 
 logger = logging.getLogger(__name__)
 
@@ -49,8 +48,7 @@ class EmailProcessor:
                 "process_assignee_responses": self.process_assignee_responses,
                 "cleanup_meetings": self.cleanup_meetings,
                 "todays_meetings": self.todays_meetings,
-                "process_invites": self.process_invites,
-                "inbox_zero": self.inbox_zero,
+                "list_invites": self.list_invites,
             },
         )
 
@@ -234,9 +232,32 @@ class EmailProcessor:
         """Show details for a specific today's meeting by index."""
         self._meeting_service.todays_meeting_detail(index)
 
-    def process_invites(self) -> None:
-        """Interactively process meeting invite emails with Google Calendar."""
-        self._meeting_service.process_invites()
+    # -- Invite CLI (non-interactive) ---------------------------------------------
+
+    def list_invites(self) -> None:
+        """List pending meeting invites with index, subject, time, status."""
+        from src.processors.invites_cli import InvitesCli
+        InvitesCli(self.config).list_invites()
+
+    def show_invite_cli(self, index: int) -> None:
+        """Show details of a meeting invite at 1-based index."""
+        from src.processors.invites_cli import InvitesCli
+        InvitesCli(self.config).show_invite(index)
+
+    def accept_invite(self, index: int) -> None:
+        """Accept invite: add to calendar, RSVP, move to meetings."""
+        from src.processors.invites_cli import InvitesCli
+        InvitesCli(self.config).accept_invite(index)
+
+    def archive_invite_cli(self, index: int) -> None:
+        """Archive a meeting invite email."""
+        from src.processors.invites_cli import InvitesCli
+        InvitesCli(self.config).archive_invite(index)
+
+    def delete_cancelled_invite(self, index: int) -> None:
+        """Delete cancelled invite from calendar and archive email."""
+        from src.processors.invites_cli import InvitesCli
+        InvitesCli(self.config).delete_cancelled_invite(index)
 
     # -- Calendar service delegations -------------------------------------------
 
@@ -294,36 +315,42 @@ class EmailProcessor:
         """Interactive wizard to manage subject tag rules."""
         self._tag_wizard.setup_tag_rules()
 
-    # -- Inbox zero -------------------------------------------------------------
+    # -- Inbox CLI (non-interactive) --------------------------------------------
 
-    def inbox_zero(self, *, unread_only: bool = False) -> None:
-        """Interactively process INBOX emails one by one to achieve inbox zero."""
-        from src.calendar.google_calendar_client import GoogleCalendarClient
-        from src.processors.inbox_zero import InboxZero
+    def list_inbox(self, *, unread_only: bool = False) -> None:
+        """List INBOX emails with index, from, subject, date."""
+        from src.processors.inbox_cli import InboxCli
+        InboxCli(self.config).list_inbox(unread_only=unread_only)
 
-        gcal_client = GoogleCalendarClient.from_config(self.config)
-        if gcal_client is None:
-            logger.info("Google Calendar not available — invite calendar features disabled")
+    def show_email(self, index: int) -> None:
+        """Show full details of inbox email at 1-based index."""
+        from src.processors.inbox_cli import InboxCli
+        InboxCli(self.config).show_email(index)
 
-        account_config = self.config.get_first_account()
+    def move_email_cli(self, index: int, folder: str) -> None:
+        """Move inbox email at index to target folder."""
+        from src.processors.inbox_cli import InboxCli
+        InboxCli(self.config).move_email(index, folder)
 
-        client = self._email_service._connect_main_account()
-        if not client:
-            return
+    def trash_email(self, index: int) -> None:
+        """Move inbox email at index to trash folder."""
+        from src.processors.inbox_cli import InboxCli
+        InboxCli(self.config).trash_email(index)
 
-        invite_processor = InviteProcessor(client, self.config, gcal_client, account_config)
+    def list_folders_cli(self) -> None:
+        """List all available IMAP folders."""
+        from src.processors.inbox_cli import InboxCli
+        InboxCli(self.config).list_folders()
 
-        try:
-            InboxZero.process_inbox(
-                client, self.config, self.smtp_client, self.openai_client,
-                dry_run=self.dry_run,
-                unread_only=unread_only,
-                invite_processor=invite_processor,
-            )
-        except Exception as e:
-            logger.error(f"Error during inbox-zero: {e}")
-        finally:
-            client.disconnect()
+    def todo_from_email(self, index: int) -> None:
+        """Create RTM todo from email at index."""
+        from src.processors.inbox_cli import InboxCli
+        InboxCli(self.config).todo_from_email(index)
+
+    def send_todo_from_email(self, index: int, title: str, priority: int, due_date: str) -> None:
+        """Send a confirmed todo from email at index (no AI generation)."""
+        from src.processors.inbox_cli import InboxCli
+        InboxCli(self.config).send_todo_from_email(index, title, priority, due_date)
 
     # -- Connection testing -----------------------------------------------------
 
@@ -366,29 +393,33 @@ class EmailProcessor:
         todo_proc = TodoService(self.config)
         todo_proc.send_direct(title, priority, due_date, due_time)
 
-    # -- AI chat delegation ----------------------------------------------------
+    def add_todo_cli(self, raw_args: list[str]) -> None:
+        """Create an RTM todo from CLI arguments: TITLE [!PRIORITY] [^DATE] [TIME]."""
+        from src.interaction.scheduler_prompts import send_output
+        from src.services.todo_service import TodoService
 
-    def ai_chat(self, initial_message: str | None = None) -> None:
-        """Start the conversational AI mode for natural language commands."""
-        from src.ai.chat_handler import ChatHandler, CommandExecutor
-        from src.ai.command_registry import CommandRegistry
+        title_parts: list[str] = []
+        priority = 3
+        due_date = "today"
+        due_time = ""
 
-        if not self.openai_client:
-            logger.error("OpenAI client not initialized")
+        for arg in raw_args:
+            if arg.startswith("!"):
+                try:
+                    priority = int(arg[1:])
+                except ValueError:
+                    title_parts.append(arg)
+            elif arg.startswith("^"):
+                due_date = arg[1:]
+            elif ":" in arg and len(arg) <= 5:
+                due_time = arg
+            else:
+                title_parts.append(arg)
+
+        title = " ".join(title_parts)
+        if not title:
+            send_output("Error: title is required.")
             return
 
-        saved_meeting = self._meeting_service
-        saved_calendar = self._calendar_service
-        self._meeting_service = MeetingServiceAI(self.config)
-        self._calendar_service = CalendarServiceAI(self.config)
-        try:
-            registry = CommandRegistry()
-            executor = CommandExecutor(self)
-            executor.bind_to_registry(registry)
-            handler = ChatHandler(
-                self.openai_client, registry, executor, self.app_logger, self.config,
-            )
-            handler.run(initial_message=initial_message)
-        finally:
-            self._meeting_service = saved_meeting
-            self._calendar_service = saved_calendar
+        todo_svc = TodoService(self.config)
+        todo_svc.send_direct(title, priority, due_date, due_time)

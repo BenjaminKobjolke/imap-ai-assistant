@@ -45,8 +45,16 @@ def main() -> None:
                         help='Interactive setup for meeting calendar and conflict-check calendars')
     parser.add_argument('--list-calendars', action='store_true',
                         help='List available Google Calendar IDs for configuration')
-    parser.add_argument('--process-invites', action='store_true',
-                        help='Interactively process meeting invites and add to Google Calendar')
+    parser.add_argument('--list-invites', action='store_true',
+                        help='List pending meeting invites with index, subject, time, status')
+    parser.add_argument('--show-invite', type=int, metavar='INDEX',
+                        help='Show details of a meeting invite at 1-based index')
+    parser.add_argument('--accept-invite', type=int, metavar='INDEX',
+                        help='Accept invite: add to calendar, RSVP, move to meetings')
+    parser.add_argument('--archive-invite', type=int, metavar='INDEX',
+                        help='Archive a meeting invite email')
+    parser.add_argument('--delete-cancelled-invite', type=int, metavar='INDEX',
+                        help='Delete cancelled invite from calendar and archive email')
     parser.add_argument('--cleanup-meetings', action='store_true',
                         help='Archive old meeting emails based on their calendar date')
     parser.add_argument('--meetings', metavar='DATE',
@@ -66,6 +74,8 @@ def main() -> None:
                         help='Remove a Google Calendar ID from the conflict-check list')
     parser.add_argument('--add-date', nargs='+', metavar='ARG',
                         help='Create event: TITLE [DATE] [START[-END]] [@CALENDAR]')
+    parser.add_argument('--add-todo', nargs='+', metavar='ARG',
+                        help='Create RTM todo: TITLE [!PRIORITY] [^DATE] [TIME]')
     parser.add_argument('--set-add-date-calendar', metavar='ID',
                         help='Set default Google Calendar for --add-date events')
     parser.add_argument('--tag-rules', action='store_true',
@@ -84,10 +94,23 @@ def main() -> None:
                         help='Remove a keyword-based subject tag rule by tag')
     parser.add_argument('--dry-run', action='store_true',
                         help='Run without sending emails, moving messages, or marking as read')
-    parser.add_argument('--inbox-zero', action='store_true',
-                        help='Interactively process INBOX emails one by one')
     parser.add_argument('--unread-only', action='store_true',
-                        help='Only process unread emails (use with --inbox-zero)')
+                        help='Only process unread emails (use with --list-inbox)')
+    parser.add_argument('--list-inbox', action='store_true',
+                        help='List all INBOX emails with index, from, subject, date')
+    parser.add_argument('--show-email', type=int, metavar='INDEX',
+                        help='Show full details of inbox email at 1-based index')
+    parser.add_argument('--move-email', nargs=2, metavar=('INDEX', 'FOLDER'),
+                        help='Move inbox email at index to target folder')
+    parser.add_argument('--trash-email', type=int, metavar='INDEX',
+                        help='Move inbox email at index to trash folder')
+    parser.add_argument('--list-folders', action='store_true',
+                        help='List all available IMAP folders')
+    parser.add_argument('--todo-from-email', type=int, metavar='INDEX',
+                        help='Create RTM todo from email at index')
+    parser.add_argument('--send-todo-from-email', nargs=4,
+                        metavar=('INDEX', 'TITLE', 'PRIORITY', 'DUE_DATE'),
+                        help='Send confirmed todo from email (index, title, priority, due_date)')
     parser.add_argument('--browse', action='store_true',
                         help='Browse IMAP folders and emails interactively')
     parser.add_argument('--search', nargs='?', const='__wizard__', metavar='TERM',
@@ -106,8 +129,6 @@ def main() -> None:
                         help='Update the cached Google Calendar list')
     parser.add_argument('--list-cached-calendars', action='store_true',
                         help='Print cached Google Calendar names and IDs')
-    parser.add_argument('--ai', nargs='*', default=None,
-                        help='Conversational AI mode (optionally pass initial message)')
     parser.add_argument('--config', default='settings.json', help='Path to configuration file')
 
     args = parser.parse_args()
@@ -172,6 +193,10 @@ def main() -> None:
         processor.add_date(args.add_date)
         return
 
+    if args.add_todo:
+        processor.add_todo_cli(args.add_todo)
+        return
+
     if args.set_add_date_calendar:
         processor.set_add_date_calendar(args.set_add_date_calendar)
         return
@@ -230,9 +255,24 @@ def main() -> None:
         processor.list_cached_calendars()
         return
 
-    if args.process_invites:
-        # Process meeting invites interactively
-        processor.process_invites()
+    if args.list_invites:
+        processor.list_invites()
+        return
+
+    if args.show_invite is not None:
+        processor.show_invite_cli(args.show_invite)
+        return
+
+    if args.accept_invite is not None:
+        processor.accept_invite(args.accept_invite)
+        return
+
+    if args.archive_invite is not None:
+        processor.archive_invite_cli(args.archive_invite)
+        return
+
+    if args.delete_cancelled_invite is not None:
+        processor.delete_cancelled_invite(args.delete_cancelled_invite)
         return
 
     if args.cleanup_meetings:
@@ -268,8 +308,33 @@ def main() -> None:
         processor.browse()
         return
 
-    if args.inbox_zero:
-        processor.inbox_zero(unread_only=args.unread_only)
+    if args.list_inbox:
+        processor.list_inbox(unread_only=args.unread_only)
+        return
+
+    if args.show_email is not None:
+        processor.show_email(args.show_email)
+        return
+
+    if args.move_email:
+        processor.move_email_cli(int(args.move_email[0]), args.move_email[1])
+        return
+
+    if args.trash_email is not None:
+        processor.trash_email(args.trash_email)
+        return
+
+    if args.list_folders:
+        processor.list_folders_cli()
+        return
+
+    if args.todo_from_email is not None:
+        processor.todo_from_email(args.todo_from_email)
+        return
+
+    if args.send_todo_from_email is not None:
+        idx, title, priority, due_date = args.send_todo_from_email
+        processor.send_todo_from_email(int(idx), title, int(priority), due_date)
         return
 
     if args.update_cache:
@@ -288,11 +353,6 @@ def main() -> None:
                 date_before=args.date_before,
                 path=args.path,
             )
-        return
-
-    if args.ai is not None:
-        initial_message = " ".join(args.ai) if args.ai else None
-        processor.ai_chat(initial_message=initial_message)
         return
 
     # No arguments: show help

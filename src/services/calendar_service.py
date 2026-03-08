@@ -401,36 +401,3 @@ class CalendarServiceInteractive(CalendarService):
             print("  Invalid choice. Try again.")
 
 
-class CalendarServiceAI(CalendarService):
-    """Calendar service without interactive prompts — safe for AI mode."""
-
-    def add_date(self, raw_args: list[str]) -> None:
-        """Create a Google Calendar event without undo prompt."""
-        result = self._create_event_core(raw_args)
-        if result is None:
-            return
-
-        _gcal_client, _event_id, title, event_date, start_hour, start_minute, end_hour, end_minute, cal_name = result
-
-        date_str = event_date.strftime("%d.%m.%Y")
-        send_output(f"Created: {title} on {date_str} {start_hour:02d}:{start_minute:02d}-{end_hour:02d}:{end_minute:02d} ({cal_name})")
-
-    def _resolve_calendar_query(self, gcal_client: object, query: str) -> str | None:
-        """Resolve a partial calendar name by auto-picking the first match."""
-        calendars = gcal_client.list_calendars()
-        query_lower = query.lower()
-        matches = [
-            c for c in calendars
-            if query_lower in c.get("summary", "").lower()
-        ]
-
-        if not matches:
-            send_output(f"No calendar matching '{query}' found.")
-            return None
-
-        cal = matches[0]
-        if len(matches) > 1:
-            send_output(f"Multiple calendars match '{query}', using first: {cal.get('summary', '')}")
-        else:
-            send_output(f"Calendar: {cal.get('summary', '')} ({cal.get('id', '')})")
-        return cal.get("id", "")

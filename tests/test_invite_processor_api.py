@@ -235,8 +235,7 @@ class TestExecuteAddCalendar:
         proc._gcal_client.add_event_from_ics.return_value = "event-id-1"
         invite = _make_invite()
 
-        with patch.object(proc, "_prompt_rsvp", return_value=False):
-            result = proc.execute_invite_action(ACTION_ADD_CALENDAR, invite, source_folder="INBOX")
+        result = proc.execute_invite_action(ACTION_ADD_CALENDAR, invite, source_folder="INBOX")
 
         assert result == ActionResult(success=True, action_type="calendar_added")
         proc._gcal_client.add_event_from_ics.assert_called_once_with(invite.ics_data)
@@ -265,13 +264,12 @@ class TestExecuteAddCalendar:
     @patch("src.processors.invite_processor.InviteRsvp.handle_rsvp")
     @patch("src.processors.invite_processor.send_output")
     def test_add_calendar_triggers_rsvp(self, _out: MagicMock, mock_rsvp: MagicMock) -> None:
-        """When user confirms RSVP, handle_rsvp is called."""
+        """When organizer_email exists, handle_rsvp is called automatically."""
         proc = _processor(account_config={"name": "test"})
         proc._gcal_client.add_event_from_ics.return_value = "event-id-1"
         invite = _make_invite()
 
-        with patch.object(proc, "_prompt_rsvp", return_value=True):
-            proc.execute_invite_action(ACTION_ADD_CALENDAR, invite)
+        proc.execute_invite_action(ACTION_ADD_CALENDAR, invite)
 
         mock_rsvp.assert_called_once()
 

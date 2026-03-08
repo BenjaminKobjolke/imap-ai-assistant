@@ -20,7 +20,7 @@ from src.constants import (
     FOLDER_INBOX,
 )
 from src.email.imap_client import EnhancedImapClient
-from src.interaction.scheduler_prompts import SchedulerChoice, scheduler_choose, scheduler_confirm, send_output
+from src.interaction.scheduler_prompts import send_output
 from src.processors.action_result import ActionResult
 from src.processors.invite_rsvp import InviteRsvp
 from src.processors.meeting_cleanup import MeetingCleanup
@@ -54,8 +54,7 @@ class ParsedInvite:
 class InviteProcessor:
     """Processes meeting invite emails with Google Calendar integration.
 
-    Provides a public API for callers (e.g. inbox-zero) and a standalone
-    ``process_invites`` workflow for the ``--process-invites`` CLI command.
+    Provides a public API for callers (e.g. inbox-zero, invites CLI).
     """
 
     def __init__(
@@ -140,100 +139,6 @@ class InviteProcessor:
 
         return ActionResult(success=False, action_type="skipped")
 
-    def ensure_calendar_selected(self) -> None:
-        """Make sure a calendar is selected (prompts interactively if needed)."""
-        if self._gcal_client is not None:
-            self._select_calendar()
-
-    # ------------------------------------------------------------------
-    # Standalone workflow — used by --process-invites
-    # ------------------------------------------------------------------
-
-    def process_invites(self) -> None:
-        """Scan for invites and let the user accept, decline, or skip each one."""
-        if self._gcal_client is None:
-            logger.error("Google Calendar client required for process_invites")
-            return
-
-        folder = self._config.meetings_invite_scan_folder
-        self._select_calendar()
-
-        send_output(f"\nScanning '{folder}' for meeting invites...")
-
-        invites = self._scan_for_invites(folder)
-        if not invites:
-            send_output("No meeting invites found.")
-            return
-
-        send_output(f"Found {len(invites)} invite(s).\n")
-
-        added = 0
-        deleted = 0
-        archived = 0
-        skipped = 0
-
-        for i, invite in enumerate(invites, 1):
-            already_exists = self._check_exists(invite)
-
-            conflicts = None
-            if invite.dtstart and not invite.is_cancellation:
-                conflicts = self._find_conflicts(invite.dtstart, invite.dtend)
-
-            self._display_invite(invite, i, len(invites), already_exists, conflicts)
-
-            if invite.is_cancellation:
-                action = self._prompt_cancellation(already_exists, invite)
-
-                if action == "delete":
-                    result = self._act_delete_from_calendar(invite, folder)
-                    if result.success:
-                        deleted += 1
-
-                elif action == "archive":
-                    result = self._act_archive(invite, folder)
-                    if result.success:
-                        archived += 1
-                    else:
-                        skipped += 1
-
-                else:
-                    skipped += 1
-
-                send_output("")
-                continue
-
-            action = self._prompt_user(already_exists, invite)
-
-            if action == "move":
-                result = self._act_move_to_meetings(invite, folder)
-                if result.success:
-                    added += 1
-
-            elif action == "yes":
-                result = self._act_add_to_calendar(invite, folder)
-                if result.success:
-                    added += 1
-                else:
-                    skipped += 1
-                    continue
-
-            elif action == "no":
-                result = self._act_archive(invite, folder)
-                if result.success:
-                    archived += 1
-                else:
-                    skipped += 1
-
-            else:
-                skipped += 1
-
-            send_output("")
-
-        send_output(
-            f"\nSummary: {len(invites)} invite(s) processed | "
-            f"{added} added | {deleted} deleted | {archived} archived | {skipped} skipped"
-        )
-
     # ------------------------------------------------------------------
     # Action implementations
     # ------------------------------------------------------------------
@@ -257,7 +162,7 @@ class InviteProcessor:
 
         send_output("  Added to Google Calendar.")
 
-        if self._account_config is not None and self._prompt_rsvp(invite):
+        if self._account_config is not None and invite.organizer_email:
             InviteRsvp.handle_rsvp(
                 self._client, self._config, self._account_config, invite,
             )
@@ -364,32 +269,6 @@ class InviteProcessor:
             summary=invite.summary or invite.subject,
             start_time=invite.dtstart,
         )
-
-    def _select_calendar(self) -> None:
-        """Use the stored calendar or let the user pick one interactively."""
-        if self._gcal_client is None:
-            return
-        if self._gcal_client.calendar_id != "primary":
-            send_output(f"\nUsing calendar: {self._gcal_client.calendar_id}")
-            return
-
-        calendars = self._gcal_client.list_calendars()
-        if not calendars:
-            send_output("Could not retrieve calendars. Using current setting.")
-            return
-
-        options = [
-            f"{cal.get('summary', '(unnamed)')}{' (primary)' if cal.get('primary') else ''} — {cal.get('id', '')}"
-            for cal in calendars
-        ]
-        choice_index = scheduler_choose("No calendar configured yet. Please pick one:", options, default=0)
-        selected = calendars[choice_index]
-        self._gcal_client.calendar_id = selected["id"]
-        self._config.save_setting(
-            ["meetings", "google_calendar", "accepts_meetings_calendar"],
-            {"name": selected.get("summary", ""), "id": selected["id"]},
-        )
-        send_output(f"  Saved: {selected.get('summary', '')} ({selected['id']})")
 
     def _scan_for_invites(self, folder: str) -> list[ParsedInvite]:
         """Scan a folder for emails containing calendar invites."""
@@ -511,39 +390,6 @@ class InviteProcessor:
                 when += f" - {invite.dtend.strftime('%H:%M')}"
             return f"{title} ({when})"
         return title
-
-    @staticmethod
-    def _prompt_user(already_in_calendar: bool, invite: ParsedInvite) -> str:
-        """Prompt user for action on an invite (standalone workflow)."""
-        header = InviteProcessor._format_invite_header(invite)
-        if already_in_calendar:
-            choices = [("Move to meetings", "move"), ("Archive", "no"), ("Skip", "skip")]
-        else:
-            choices = [("Add to calendar", "yes"), ("Archive", "no"), ("Skip", "skip")]
-        return SchedulerChoice(f"{header}\nAction:", choices).choose()
-
-    @staticmethod
-    def _prompt_cancellation(already_in_calendar: bool, invite: ParsedInvite) -> str:
-        """Prompt user for action on a cancelled invite (standalone workflow)."""
-        header = InviteProcessor._format_invite_header(invite)
-        if already_in_calendar:
-            choices = [
-                ("Delete from calendar & archive", "delete"),
-                ("Archive only", "archive"),
-                ("Skip", "skip"),
-            ]
-        else:
-            choices = [("Archive", "archive"), ("Skip", "skip")]
-        return SchedulerChoice(f"CANCELLED: {header}\nAction:", choices).choose()
-
-    @staticmethod
-    def _prompt_rsvp(invite: ParsedInvite) -> bool:
-        """Ask user if they want to send an RSVP acceptance."""
-        if not invite.organizer_email:
-            return False
-        return scheduler_confirm(
-            f"Send RSVP acceptance to {invite.organizer_email}?", default=True,
-        )
 
     def _move_to_meetings(self, message_id: object, folder: str) -> bool:
         """Move an accepted invite email to the meetings folder."""

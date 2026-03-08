@@ -80,28 +80,6 @@ class MeetingService:
         finally:
             client.disconnect()
 
-    def process_invites(self) -> None:
-        """Interactively process meeting invite emails with Google Calendar."""
-        from src.calendar.google_calendar_client import GoogleCalendarClient
-        from src.processors.invite_processor import InviteProcessor
-
-        gcal_client = GoogleCalendarClient.from_config(self.config)
-        if gcal_client is None:
-            logger.error("Failed to authenticate with Google Calendar")
-            return
-
-        account_config = self.config.get_first_account()
-        client = self._connect_main_account()
-        if not client or not account_config:
-            return
-        try:
-            processor = InviteProcessor(client, self.config, gcal_client, account_config)
-            processor.process_invites()
-        except Exception as e:
-            logger.error(f"Error processing invites: {e}")
-        finally:
-            client.disconnect()
-
     # -- internal helpers used by child classes ----------------------------------
 
     def _list_todays_meetings(self, *, interactive: bool) -> None:
@@ -158,13 +136,3 @@ class MeetingServiceInteractive(MeetingService):
         self._list_meetings(date_str, interactive=True)
 
 
-class MeetingServiceAI(MeetingService):
-    """Meeting service without interactive prompts — safe for AI mode."""
-
-    def todays_meetings(self) -> None:
-        """List today's meetings without interactive prompts."""
-        self._list_todays_meetings(interactive=False)
-
-    def meetings(self, date_str: str) -> None:
-        """List meetings for a date without interactive prompts."""
-        self._list_meetings(date_str, interactive=False)
