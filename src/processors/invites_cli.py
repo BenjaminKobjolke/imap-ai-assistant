@@ -6,6 +6,7 @@ import logging
 
 from src.config.settings import ConfigManager
 from src.email.imap_client import EnhancedImapClient
+from src.interaction.scheduler_prompts import send_output
 from src.processors.invite_processor import InviteProcessor, ParsedInvite
 from src.processors.invite_rsvp import InviteRsvp
 
@@ -22,11 +23,11 @@ class InvitesCli:
         """Connect to the main IMAP account. Returns client or None on failure."""
         account_config = self._config.get_first_account()
         if not account_config:
-            print("Error: no main account configuration found")
+            send_output("Error: no main account configuration found")
             return None
         client = EnhancedImapClient(account_config)
         if not client.connect():
-            print("Error: failed to connect to IMAP server")
+            send_output("Error: failed to connect to IMAP server")
             return None
         return client
 
@@ -48,16 +49,17 @@ class InvitesCli:
         processor = InviteProcessor(client, self._config, gcal_client, account_config)
         return processor._scan_for_invites(folder)
 
-    def _get_invite_at_index(
+    def _find_by_id(
         self,
         invites: list[ParsedInvite],
-        index: int,
+        invite_id: str,
     ) -> ParsedInvite | None:
-        """Validate 1-based index and return the invite, or print error."""
-        if index < 1 or index > len(invites):
-            print(f"Error: index {index} out of range (1-{len(invites)})")
-            return None
-        return invites[index - 1]
+        """Find an invite by its IMAP message ID. Returns None and prints error if not found."""
+        for invite in invites:
+            if str(invite.message_id) == invite_id:
+                return invite
+        send_output(f"Error: Invite with id {invite_id} not found")
+        return None
 
     def list_invites(self) -> None:
         """List pending meeting invites with index, subject, time, organizer, status."""
@@ -68,12 +70,12 @@ class InvitesCli:
             gcal_client = self._create_gcal_client()
             invites = self._scan_invites(client, gcal_client)
             if not invites:
-                print("No meeting invites found.")
+                send_output("No meeting invites found.")
                 return
 
             processor = InviteProcessor(client, self._config, gcal_client)
 
-            print(f"Found {len(invites)} invite(s):\n")
+            send_output(f"Found {len(invites)} invite(s):\n")
             for i, invite in enumerate(invites, 1):
                 subject = invite.summary or invite.subject
                 when = ""
@@ -90,12 +92,12 @@ class InvitesCli:
                 else:
                     status = "Not in calendar"
 
-                print(f"[{i}] {subject} | {when} | {organizer} | {status}")
+                send_output(f"[id:{invite.message_id}] [{i}] {subject} | {when} | {organizer} | {status}")
         finally:
             client.disconnect()
 
-    def show_invite(self, index: int) -> None:
-        """Show details of a meeting invite at 1-based index."""
+    def show_invite(self, invite_id: str) -> None:
+        """Show details of a meeting invite by ID."""
         client = self._connect()
         if not client:
             return
@@ -103,10 +105,10 @@ class InvitesCli:
             gcal_client = self._create_gcal_client()
             invites = self._scan_invites(client, gcal_client)
             if not invites:
-                print("No meeting invites found.")
+                send_output("No meeting invites found.")
                 return
 
-            invite = self._get_invite_at_index(invites, index)
+            invite = self._find_by_id(invites, invite_id)
             if invite is None:
                 return
 
@@ -114,42 +116,42 @@ class InvitesCli:
             processor = InviteProcessor(client, self._config, gcal_client, account_config)
             already_exists = processor._check_exists(invite)
 
-            print(f"Subject:   {invite.summary or invite.subject}")
+            send_output(f"Subject:   {invite.summary or invite.subject}")
 
             if invite.dtstart:
                 start_str = invite.dtstart.strftime("%a %d.%m.%Y %H:%M")
                 if invite.dtend:
                     end_str = invite.dtend.strftime("%H:%M")
-                    print(f"When:      {start_str} - {end_str}")
+                    send_output(f"When:      {start_str} - {end_str}")
                 else:
-                    print(f"When:      {start_str}")
+                    send_output(f"When:      {start_str}")
             else:
-                print("When:      (unknown)")
+                send_output("When:      (unknown)")
 
-            print(f"Organizer: {invite.organizer or '(unknown)'}")
-            print(f"Location:  {invite.location or '(none)'}")
+            send_output(f"Organizer: {invite.organizer or '(unknown)'}")
+            send_output(f"Location:  {invite.location or '(none)'}")
 
             if invite.is_cancellation:
-                print("Status:    CANCELLED")
+                send_output("Status:    CANCELLED")
             elif already_exists:
-                print("Status:    In calendar")
+                send_output("Status:    In calendar")
             else:
-                print("Status:    Not in calendar")
+                send_output("Status:    Not in calendar")
 
             if invite.dtstart and not invite.is_cancellation and gcal_client is not None:
                 overlapping, nearby = processor._find_conflicts(invite.dtstart, invite.dtend)
                 if overlapping:
-                    print(f"Conflicts: {len(overlapping)} overlapping event(s)")
+                    send_output(f"Conflicts: {len(overlapping)} overlapping event(s)")
                     for cal_name, summary, time_range in overlapping:
-                        print(f"           {time_range}  {summary} ({cal_name})")
+                        send_output(f"           {time_range}  {summary} ({cal_name})")
                 if nearby:
-                    print(f"Nearby:    {len(nearby)} event(s)")
+                    send_output(f"Nearby:    {len(nearby)} event(s)")
                     for cal_name, summary, time_range in nearby:
-                        print(f"           {time_range}  {summary} ({cal_name})")
+                        send_output(f"           {time_range}  {summary} ({cal_name})")
         finally:
             client.disconnect()
 
-    def accept_invite(self, index: int) -> None:
+    def accept_invite(self, invite_id: str) -> None:
         """Accept invite: add to calendar, RSVP, move to meetings folder."""
         client = self._connect()
         if not client:
@@ -158,10 +160,10 @@ class InvitesCli:
             gcal_client = self._create_gcal_client()
             invites = self._scan_invites(client, gcal_client)
             if not invites:
-                print("No meeting invites found.")
+                send_output("No meeting invites found.")
                 return
 
-            invite = self._get_invite_at_index(invites, index)
+            invite = self._find_by_id(invites, invite_id)
             if invite is None:
                 return
 
@@ -174,35 +176,35 @@ class InvitesCli:
             if already_exists:
                 success = processor._move_to_meetings(invite.message_id, folder)
                 if success:
-                    print("Already in calendar. Moved to meetings folder.")
+                    send_output("Already in calendar. Moved to meetings folder.")
                 else:
-                    print("Already in calendar. Failed to move to meetings folder.")
+                    send_output("Already in calendar. Failed to move to meetings folder.")
                 return
 
             if gcal_client is None:
-                print("Error: Google Calendar not available")
+                send_output("Error: Google Calendar not available")
                 return
 
             event_id = gcal_client.add_event_from_ics(invite.ics_data)
             if event_id is None:
-                print("Failed to add to Google Calendar.")
+                send_output("Failed to add to Google Calendar.")
                 return
 
-            print("Added to Google Calendar.")
+            send_output("Added to Google Calendar.")
 
             if account_config and invite.organizer_email:
                 InviteRsvp.handle_rsvp(client, self._config, account_config, invite)
-                print("RSVP sent.")
+                send_output("RSVP sent.")
 
             success = processor._move_to_meetings(invite.message_id, folder)
             if success:
-                print("Moved to meetings folder.")
+                send_output("Moved to meetings folder.")
             else:
-                print("Failed to move to meetings folder.")
+                send_output("Failed to move to meetings folder.")
         finally:
             client.disconnect()
 
-    def archive_invite(self, index: int) -> None:
+    def archive_invite(self, invite_id: str) -> None:
         """Archive a meeting invite email."""
         client = self._connect()
         if not client:
@@ -211,10 +213,10 @@ class InvitesCli:
             gcal_client = self._create_gcal_client()
             invites = self._scan_invites(client, gcal_client)
             if not invites:
-                print("No meeting invites found.")
+                send_output("No meeting invites found.")
                 return
 
-            invite = self._get_invite_at_index(invites, index)
+            invite = self._find_by_id(invites, invite_id)
             if invite is None:
                 return
 
@@ -222,13 +224,13 @@ class InvitesCli:
             processor = InviteProcessor(client, self._config, gcal_client)
             success = processor._archive_invite(invite.message_id, folder)
             if success:
-                print("Archived invite.")
+                send_output("Archived invite.")
             else:
-                print("Failed to archive invite.")
+                send_output("Failed to archive invite.")
         finally:
             client.disconnect()
 
-    def delete_cancelled_invite(self, index: int) -> None:
+    def delete_cancelled_invite(self, invite_id: str) -> None:
         """Delete cancelled event from calendar and archive email."""
         client = self._connect()
         if not client:
@@ -237,10 +239,10 @@ class InvitesCli:
             gcal_client = self._create_gcal_client()
             invites = self._scan_invites(client, gcal_client)
             if not invites:
-                print("No meeting invites found.")
+                send_output("No meeting invites found.")
                 return
 
-            invite = self._get_invite_at_index(invites, index)
+            invite = self._find_by_id(invites, invite_id)
             if invite is None:
                 return
 
@@ -253,15 +255,15 @@ class InvitesCli:
                     start_time=invite.dtstart,
                 )
                 if success:
-                    print("Deleted from Google Calendar.")
+                    send_output("Deleted from Google Calendar.")
                 else:
-                    print("Failed to delete from Google Calendar.")
+                    send_output("Failed to delete from Google Calendar.")
 
             processor = InviteProcessor(client, self._config, gcal_client)
             success = processor._archive_invite(invite.message_id, folder)
             if success:
-                print("Archived invite.")
+                send_output("Archived invite.")
             else:
-                print("Failed to archive invite.")
+                send_output("Failed to archive invite.")
         finally:
             client.disconnect()

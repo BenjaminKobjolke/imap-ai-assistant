@@ -15,7 +15,7 @@ from src.processors.task_processor import TaskProcessor
 from src.processors.workflow_runner import WorkflowRunner
 from src.services.calendar_service import CalendarServiceInteractive
 from src.services.email_service import EmailService
-from src.services.meeting_service import MeetingServiceInteractive
+from src.services.meeting_service import MeetingService
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +33,7 @@ class EmailProcessor:
         self.response_processor = None
         self.task_processor = None
         self._calendar_service = CalendarServiceInteractive(self.config)
-        self._meeting_service = MeetingServiceInteractive(self.config)
+        self._meeting_service = MeetingService(self.config)
         self._tag_wizard = TagRulesWizard(self.config)
         self._initialize_logger()
         self._initialize_clients()
@@ -228,9 +228,9 @@ class EmailProcessor:
         """List meetings for a given date string."""
         self._meeting_service.meetings(date_str)
 
-    def todays_meeting_detail(self, index: int) -> None:
-        """Show details for a specific today's meeting by index."""
-        self._meeting_service.todays_meeting_detail(index)
+    def meeting_detail(self, date_str: str, meeting_id: str) -> None:
+        """Show details for a specific meeting by date and ID."""
+        self._meeting_service.meeting_detail(date_str, meeting_id)
 
     # -- Invite CLI (non-interactive) ---------------------------------------------
 
@@ -239,25 +239,25 @@ class EmailProcessor:
         from src.processors.invites_cli import InvitesCli
         InvitesCli(self.config).list_invites()
 
-    def show_invite_cli(self, index: int) -> None:
-        """Show details of a meeting invite at 1-based index."""
+    def show_invite_cli(self, invite_id: str) -> None:
+        """Show details of a meeting invite by ID."""
         from src.processors.invites_cli import InvitesCli
-        InvitesCli(self.config).show_invite(index)
+        InvitesCli(self.config).show_invite(invite_id)
 
-    def accept_invite(self, index: int) -> None:
+    def accept_invite(self, invite_id: str) -> None:
         """Accept invite: add to calendar, RSVP, move to meetings."""
         from src.processors.invites_cli import InvitesCli
-        InvitesCli(self.config).accept_invite(index)
+        InvitesCli(self.config).accept_invite(invite_id)
 
-    def archive_invite_cli(self, index: int) -> None:
+    def archive_invite_cli(self, invite_id: str) -> None:
         """Archive a meeting invite email."""
         from src.processors.invites_cli import InvitesCli
-        InvitesCli(self.config).archive_invite(index)
+        InvitesCli(self.config).archive_invite(invite_id)
 
-    def delete_cancelled_invite(self, index: int) -> None:
+    def delete_cancelled_invite(self, invite_id: str) -> None:
         """Delete cancelled invite from calendar and archive email."""
         from src.processors.invites_cli import InvitesCli
-        InvitesCli(self.config).delete_cancelled_invite(index)
+        InvitesCli(self.config).delete_cancelled_invite(invite_id)
 
     # -- Calendar service delegations -------------------------------------------
 
@@ -322,35 +322,35 @@ class EmailProcessor:
         from src.processors.inbox_cli import InboxCli
         InboxCli(self.config).list_inbox(unread_only=unread_only)
 
-    def show_email(self, index: int) -> None:
-        """Show full details of inbox email at 1-based index."""
+    def show_email(self, email_id: str) -> None:
+        """Show full details of inbox email by ID."""
         from src.processors.inbox_cli import InboxCli
-        InboxCli(self.config).show_email(index)
+        InboxCli(self.config).show_email(email_id)
 
-    def move_email_cli(self, index: int, folder: str) -> None:
-        """Move inbox email at index to target folder."""
+    def move_email_cli(self, email_id: str, folder: str) -> None:
+        """Move inbox email by ID to target folder."""
         from src.processors.inbox_cli import InboxCli
-        InboxCli(self.config).move_email(index, folder)
+        InboxCli(self.config).move_email(email_id, folder)
 
-    def trash_email(self, index: int) -> None:
-        """Move inbox email at index to trash folder."""
+    def trash_email(self, email_id: str) -> None:
+        """Move inbox email by ID to trash folder."""
         from src.processors.inbox_cli import InboxCli
-        InboxCli(self.config).trash_email(index)
+        InboxCli(self.config).trash_email(email_id)
 
     def list_folders_cli(self) -> None:
         """List all available IMAP folders."""
         from src.processors.inbox_cli import InboxCli
         InboxCli(self.config).list_folders()
 
-    def todo_from_email(self, index: int) -> None:
-        """Create RTM todo from email at index."""
+    def todo_from_email(self, email_id: str) -> None:
+        """Create RTM todo from email by ID."""
         from src.processors.inbox_cli import InboxCli
-        InboxCli(self.config).todo_from_email(index)
+        InboxCli(self.config).todo_from_email(email_id)
 
-    def send_todo_from_email(self, index: int, title: str, priority: int, due_date: str) -> None:
-        """Send a confirmed todo from email at index (no AI generation)."""
+    def send_todo_from_email(self, email_id: str, title: str, priority: int, due_date: str) -> None:
+        """Send a confirmed todo from email by ID (no AI generation)."""
         from src.processors.inbox_cli import InboxCli
-        InboxCli(self.config).send_todo_from_email(index, title, priority, due_date)
+        InboxCli(self.config).send_todo_from_email(email_id, title, priority, due_date)
 
     # -- Connection testing -----------------------------------------------------
 

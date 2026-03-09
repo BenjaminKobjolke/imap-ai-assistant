@@ -42,12 +42,13 @@ def _make_gcal_event(
     }
 
 
-def _make_imap_meeting(subject: str, start_hour: int = 9, end_hour: int = 10) -> dict:
+def _make_imap_meeting(subject: str, start_hour: int = 9, end_hour: int = 10, msg_id: int = 100) -> dict:
     """Create a minimal IMAP meeting dict."""
     tz = timezone(timedelta(hours=1))
     start = datetime(2026, 3, 6, start_hour, tzinfo=tz)
     end = datetime(2026, 3, 6, end_hour, tzinfo=tz)
     return {
+        "id": f"imap:{msg_id}",
         "start": start,
         "end": end,
         "subject": subject,
@@ -66,6 +67,7 @@ class TestGcalEventToMeetingDict:
         result = _gcal_event_to_meeting_dict(event, "My Cal")
 
         assert result is not None
+        assert result["id"] == "gcal:evt1"
         assert result["subject"] == "Standup"
         assert result["source"] == "gcal"
         assert result["calendar_name"] == "My Cal"
@@ -153,6 +155,7 @@ class TestMergeGcalEvents:
         assert len(result) == 1
         assert result[0]["subject"] == "GCal Standup"
         assert result[0]["source"] == "gcal"
+        assert result[0]["id"] == "gcal:g1"
         assert result[0]["index"] == 1
 
     @patch.object(MeetingCleanup, "_get_ics_data", return_value=None)
@@ -200,6 +203,7 @@ class TestMergeGcalEvents:
 
         assert len(merged) == 1
         assert merged[0]["source"] == "both"
+        assert merged[0]["id"] == "gcal:g1"
 
     @patch.object(MeetingCleanup, "_get_ics_data", return_value=None)
     def test_gcal_failure_falls_back(self, _mock_ics: MagicMock) -> None:

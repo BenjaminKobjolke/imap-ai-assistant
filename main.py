@@ -47,13 +47,13 @@ def main() -> None:
                         help='List available Google Calendar IDs for configuration')
     parser.add_argument('--list-invites', action='store_true',
                         help='List pending meeting invites with index, subject, time, status')
-    parser.add_argument('--show-invite', type=int, metavar='INDEX',
-                        help='Show details of a meeting invite at 1-based index')
-    parser.add_argument('--accept-invite', type=int, metavar='INDEX',
+    parser.add_argument('--show-invite', type=str, metavar='ID',
+                        help='Show details of a meeting invite by ID')
+    parser.add_argument('--accept-invite', type=str, metavar='ID',
                         help='Accept invite: add to calendar, RSVP, move to meetings')
-    parser.add_argument('--archive-invite', type=int, metavar='INDEX',
+    parser.add_argument('--archive-invite', type=str, metavar='ID',
                         help='Archive a meeting invite email')
-    parser.add_argument('--delete-cancelled-invite', type=int, metavar='INDEX',
+    parser.add_argument('--delete-cancelled-invite', type=str, metavar='ID',
                         help='Delete cancelled invite from calendar and archive email')
     parser.add_argument('--cleanup-meetings', action='store_true',
                         help='Archive old meeting emails based on their calendar date')
@@ -62,8 +62,8 @@ def main() -> None:
     parser.add_argument('--test-email', action='store_true',
                         help='Send a test email and verify it arrives via IMAP')
     parser.add_argument('--todays-meetings', action='store_true', help="List today's meetings with times")
-    parser.add_argument('--todays-meeting', type=int, metavar='N',
-                        help="Show details for today's meeting N (use --todays-meetings to see indices)")
+    parser.add_argument('--meeting-detail', nargs=2, metavar=('DATE', 'ID'),
+                        help='Show meeting details by date and ID')
     parser.add_argument('--workflow', nargs='?', const='__list__', metavar='NAME',
                         help="Run a workflow by name, or list available workflows if no name given")
     parser.add_argument('--set-meeting-calendar', metavar='ID',
@@ -98,19 +98,19 @@ def main() -> None:
                         help='Only process unread emails (use with --list-inbox)')
     parser.add_argument('--list-inbox', action='store_true',
                         help='List all INBOX emails with index, from, subject, date')
-    parser.add_argument('--show-email', type=int, metavar='INDEX',
-                        help='Show full details of inbox email at 1-based index')
-    parser.add_argument('--move-email', nargs=2, metavar=('INDEX', 'FOLDER'),
-                        help='Move inbox email at index to target folder')
-    parser.add_argument('--trash-email', type=int, metavar='INDEX',
-                        help='Move inbox email at index to trash folder')
+    parser.add_argument('--show-email', type=str, metavar='ID',
+                        help='Show full details of inbox email by ID')
+    parser.add_argument('--move-email', nargs=2, metavar=('ID', 'FOLDER'),
+                        help='Move inbox email by ID to target folder')
+    parser.add_argument('--trash-email', type=str, metavar='ID',
+                        help='Move inbox email by ID to trash folder')
     parser.add_argument('--list-folders', action='store_true',
                         help='List all available IMAP folders')
-    parser.add_argument('--todo-from-email', type=int, metavar='INDEX',
-                        help='Create RTM todo from email at index')
+    parser.add_argument('--todo-from-email', type=str, metavar='ID',
+                        help='Create RTM todo from email by ID')
     parser.add_argument('--send-todo-from-email', nargs=4,
-                        metavar=('INDEX', 'TITLE', 'PRIORITY', 'DUE_DATE'),
-                        help='Send confirmed todo from email (index, title, priority, due_date)')
+                        metavar=('ID', 'TITLE', 'PRIORITY', 'DUE_DATE'),
+                        help='Send confirmed todo from email (id, title, priority, due_date)')
     parser.add_argument('--browse', action='store_true',
                         help='Browse IMAP folders and emails interactively')
     parser.add_argument('--search', nargs='?', const='__wizard__', metavar='TERM',
@@ -287,9 +287,9 @@ def main() -> None:
         processor.meetings(args.meetings)
         return
 
-    if args.todays_meeting is not None:
-        # Show detail for a specific meeting
-        processor.todays_meeting_detail(args.todays_meeting)
+    if args.meeting_detail:
+        date_str, meeting_id = args.meeting_detail
+        processor.meeting_detail(date_str, meeting_id)
         return
 
     if args.todays_meetings:
@@ -317,7 +317,7 @@ def main() -> None:
         return
 
     if args.move_email:
-        processor.move_email_cli(int(args.move_email[0]), args.move_email[1])
+        processor.move_email_cli(args.move_email[0], args.move_email[1])
         return
 
     if args.trash_email is not None:
@@ -333,8 +333,8 @@ def main() -> None:
         return
 
     if args.send_todo_from_email is not None:
-        idx, title, priority, due_date = args.send_todo_from_email
-        processor.send_todo_from_email(int(idx), title, int(priority), due_date)
+        email_id, title, priority, due_date = args.send_todo_from_email
+        processor.send_todo_from_email(email_id, title, int(priority), due_date)
         return
 
     if args.update_cache:

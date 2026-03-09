@@ -14,6 +14,7 @@ from src.constants import (
     MIME_TEXT_PLAIN,
 )
 from src.email.imap_client import EnhancedImapClient
+from src.interaction.scheduler_prompts import send_output
 
 logger = logging.getLogger(__name__)
 
@@ -28,11 +29,11 @@ class InboxCli:
         """Connect to the main IMAP account. Returns client or None on failure."""
         account_config = self._config.get_first_account()
         if not account_config:
-            print("Error: no main account configuration found")
+            send_output("Error: no main account configuration found")
             return None
         client = EnhancedImapClient(account_config)
         if not client.connect():
-            print("Error: failed to connect to IMAP server")
+            send_output("Error: failed to connect to IMAP server")
             return None
         return client
 
@@ -44,85 +45,99 @@ class InboxCli:
             return client.client.get_unread_messages()
         return client.client.get_all_messages(folder=FOLDER_INBOX)
 
+    def _find_by_id(
+        self, messages: list[tuple[object, object]], email_id: str,
+    ) -> tuple[object, object]:
+        """Find an email by its IMAP UID. Raises ValueError if not found."""
+        for msg_id, email_msg in messages:
+            if str(msg_id) == email_id:
+                return msg_id, email_msg
+        msg = f"Email with id {email_id} not found"
+        raise ValueError(msg)
+
     def list_inbox(self, *, unread_only: bool = False) -> None:
-        """List INBOX emails: [INDEX] FROM | SUBJECT | DATE (1-based)."""
+        """List INBOX emails: [id:ID] [INDEX] FROM | SUBJECT | DATE."""
         client = self._connect()
         if not client:
             return
         try:
             messages = self._get_messages(client, unread_only=unread_only)
             if not messages:
-                print("INBOX is empty.")
+                send_output("INBOX is empty.")
                 return
 
             label = "unread " if unread_only else ""
-            print(f"Found {len(messages)} {label}email(s) in INBOX:\n")
-            for i, (_msg_id, email_msg) in enumerate(messages, 1):
+            send_output(f"Found {len(messages)} {label}email(s) in INBOX:\n")
+            for i, (msg_id, email_msg) in enumerate(messages, 1):
                 from_addr = getattr(email_msg, "from_address", "(unknown)") or "(unknown)"
                 subject = getattr(email_msg, "subject", "(no subject)") or "(no subject)"
                 date = getattr(email_msg, "date", "") or ""
-                print(f"[{i}] {from_addr} | {subject} | {date}")
+                send_output(f"[id:{msg_id}] [{i}] {from_addr} | {subject} | {date}")
         finally:
             client.disconnect()
 
-    def show_email(self, index: int) -> None:
-        """Show full email details at 1-based index (from, subject, date, body)."""
+    def show_email(self, email_id: str) -> None:
+        """Show full email details by ID (from, subject, date, body)."""
         client = self._connect()
         if not client:
             return
         try:
             messages = self._get_messages(client)
             if not messages:
-                print("INBOX is empty.")
-                return
-            if index < 1 or index > len(messages):
-                print(f"Error: index {index} out of range (1-{len(messages)})")
+                send_output("INBOX is empty.")
                 return
 
-            _msg_id, email_msg = messages[index - 1]
+            try:
+                _msg_id, email_msg = self._find_by_id(messages, email_id)
+            except ValueError as e:
+                send_output(f"Error: {e}")
+                return
+
             from_addr = getattr(email_msg, "from_address", "(unknown)") or "(unknown)"
             subject = getattr(email_msg, "subject", "(no subject)") or "(no subject)"
             date = getattr(email_msg, "date", "") or ""
 
-            print(f"From:    {from_addr}")
-            print(f"Subject: {subject}")
-            print(f"Date:    {date}")
-            print("-" * 50)
+            send_output(f"From:    {from_addr}")
+            send_output(f"Subject: {subject}")
+            send_output(f"Date:    {date}")
+            send_output("-" * 50)
 
             body = self._get_body(email_msg)
-            print(body)
+            send_output(body)
         finally:
             client.disconnect()
 
-    def move_email(self, index: int, folder: str) -> None:
-        """Move email at index to folder. Marks as read."""
+    def move_email(self, email_id: str, folder: str) -> None:
+        """Move email by ID to folder. Marks as read."""
         client = self._connect()
         if not client:
             return
         try:
             messages = self._get_messages(client)
             if not messages:
-                print("INBOX is empty.")
-                return
-            if index < 1 or index > len(messages):
-                print(f"Error: index {index} out of range (1-{len(messages)})")
+                send_output("INBOX is empty.")
                 return
 
-            msg_id, _email_msg = messages[index - 1]
+            try:
+                msg_id, _email_msg = self._find_by_id(messages, email_id)
+            except ValueError as e:
+                send_output(f"Error: {e}")
+                return
+
             client.client.client.select_folder(FOLDER_INBOX)
             client.client.mark_as_read(str(msg_id))
             success = client.client.move_to_folder(msg_id, folder)
             if success:
-                print(f"Moved email {index} to '{folder}'")
+                send_output(f"Moved email {email_id} to '{folder}'")
             else:
-                print(f"Failed to move email {index} to '{folder}'")
+                send_output(f"Failed to move email {email_id} to '{folder}'")
         finally:
             client.disconnect()
 
-    def trash_email(self, index: int) -> None:
-        """Move email at index to trash folder. Marks as read."""
+    def trash_email(self, email_id: str) -> None:
+        """Move email by ID to trash folder. Marks as read."""
         trash = self._config.trash_folder
-        self.move_email(index, trash)
+        self.move_email(email_id, trash)
 
     def list_folders(self) -> None:
         """Print all available IMAP folders, sorted."""
@@ -132,15 +147,15 @@ class InboxCli:
         try:
             folders = sorted(client.client.list_folders())
             if not folders:
-                print("No folders found.")
+                send_output("No folders found.")
                 return
-            print(f"Available folders ({len(folders)}):\n")
+            send_output(f"Available folders ({len(folders)}):\n")
             for folder in folders:
-                print(f"  {folder}")
+                send_output(f"  {folder}")
         finally:
             client.disconnect()
 
-    def todo_from_email(self, index: int) -> None:
+    def todo_from_email(self, email_id: str) -> None:
         """Create RTM todo from email content, move to target_folder."""
         client = self._connect()
         if not client:
@@ -148,13 +163,15 @@ class InboxCli:
         try:
             messages = self._get_messages(client)
             if not messages:
-                print("INBOX is empty.")
-                return
-            if index < 1 or index > len(messages):
-                print(f"Error: index {index} out of range (1-{len(messages)})")
+                send_output("INBOX is empty.")
                 return
 
-            msg_id, email_msg = messages[index - 1]
+            try:
+                msg_id, email_msg = self._find_by_id(messages, email_id)
+            except ValueError as e:
+                send_output(f"Error: {e}")
+                return
+
             subject, first_line, body_excerpt = client.extract_email_content(email_msg)
             from_address = getattr(email_msg, "from_address", "") or ""
 
@@ -169,13 +186,13 @@ class InboxCli:
             other_people = self._config.get_other_people_names()
 
             if not api_key:
-                print("Error: no OpenAI API key configured")
+                send_output("Error: no OpenAI API key configured")
                 return
 
             openai_client = OpenAIClient(api_key, model, max_tokens, temperature, other_people)
             result = TodoService.generate_todo(openai_client, subject, first_line, body_excerpt)
             if not result:
-                print("Failed to generate todo from email.")
+                send_output("Failed to generate todo from email.")
                 return
 
             todo_svc = TodoService(self._config)
@@ -191,21 +208,21 @@ class InboxCli:
                 todo_text, subject_tag, subject, from_address,
             )
             if not success:
-                print("Failed to send todo to RTM.")
+                send_output("Failed to send todo to RTM.")
                 return
 
-            print(f"Todo created: {todo_text} {subject_tag}")
+            send_output(f"Todo created: {todo_text} {subject_tag}")
 
             # Move to target folder
             target_folder = rules[CFG_TARGET_FOLDER]
             client.client.client.select_folder(FOLDER_INBOX)
             client.client.mark_as_read(str(msg_id))
             client.client.move_to_folder(msg_id, target_folder)
-            print(f"Moved email {index} to '{target_folder}'")
+            send_output(f"Moved email {email_id} to '{target_folder}'")
         finally:
             client.disconnect()
 
-    def send_todo_from_email(self, index: int, title: str, priority: int, due_date: str) -> None:
+    def send_todo_from_email(self, email_id: str, title: str, priority: int, due_date: str) -> None:
         """Send a confirmed todo from email content and move to target_folder.
 
         Unlike todo_from_email, this skips AI generation and uses the provided values.
@@ -216,13 +233,15 @@ class InboxCli:
         try:
             messages = self._get_messages(client)
             if not messages:
-                print("INBOX is empty.")
-                return
-            if index < 1 or index > len(messages):
-                print(f"Error: index {index} out of range (1-{len(messages)})")
+                send_output("INBOX is empty.")
                 return
 
-            msg_id, email_msg = messages[index - 1]
+            try:
+                msg_id, email_msg = self._find_by_id(messages, email_id)
+            except ValueError as e:
+                send_output(f"Error: {e}")
+                return
+
             subject = getattr(email_msg, "subject", "") or ""
             from_address = getattr(email_msg, "from_address", "") or ""
 
@@ -241,17 +260,17 @@ class InboxCli:
                 todo_text, subject_tag, subject, from_address,
             )
             if not success:
-                print("Failed to send todo to RTM.")
+                send_output("Failed to send todo to RTM.")
                 return
 
-            print(f"Todo created: {todo_text} {subject_tag}")
+            send_output(f"Todo created: {todo_text} {subject_tag}")
 
             # Move to target folder
             target_folder = rules[CFG_TARGET_FOLDER]
             client.client.client.select_folder(FOLDER_INBOX)
             client.client.mark_as_read(str(msg_id))
             client.client.move_to_folder(msg_id, target_folder)
-            print(f"Moved email {index} to '{target_folder}'")
+            send_output(f"Moved email {email_id} to '{target_folder}'")
         finally:
             client.disconnect()
 

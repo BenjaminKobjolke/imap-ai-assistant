@@ -1,4 +1,4 @@
-"""Tests for MeetingService and MeetingServiceInteractive."""
+"""Tests for MeetingService."""
 
 from __future__ import annotations
 
@@ -7,10 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from src.config.settings import ConfigManager
-from src.services.meeting_service import (
-    MeetingService,
-    MeetingServiceInteractive,
-)
+from src.services.meeting_service import MeetingService
 
 
 @pytest.fixture()
@@ -27,24 +24,12 @@ def config() -> MagicMock:
 class TestMeetingServiceBase:
     """Tests for shared base class methods."""
 
-    def test_todays_meetings_raises_not_implemented(self, config: MagicMock) -> None:
-        """Verify base class todays_meetings raises NotImplementedError."""
-        service = MeetingService(config)
-        with pytest.raises(NotImplementedError):
-            service.todays_meetings()
-
-    def test_meetings_raises_not_implemented(self, config: MagicMock) -> None:
-        """Verify base class meetings raises NotImplementedError."""
-        service = MeetingService(config)
-        with pytest.raises(NotImplementedError):
-            service.meetings("today")
-
     def test_connect_main_account_returns_none_on_missing_config(
         self, config: MagicMock,
     ) -> None:
         """Verify _connect_main_account returns None when no account configured."""
         config.get_first_account.return_value = None
-        service = MeetingServiceInteractive(config)
+        service = MeetingService(config)
         result = service._connect_main_account()
         assert result is None
 
@@ -56,7 +41,7 @@ class TestMeetingServiceBase:
         mock_client = MagicMock()
         mock_client.connect.return_value = False
         mock_imap_cls.return_value = mock_client
-        service = MeetingServiceInteractive(config)
+        service = MeetingService(config)
         result = service._connect_main_account()
         assert result is None
 
@@ -73,7 +58,7 @@ class TestMeetingServiceBase:
         mock_client.connect.return_value = True
         mock_imap_cls.return_value = mock_client
 
-        service = MeetingServiceInteractive(config)
+        service = MeetingService(config)
         service.cleanup_meetings()
 
         mock_cleanup.cleanup_old_meetings.assert_called_once_with(mock_client, config)
@@ -81,55 +66,61 @@ class TestMeetingServiceBase:
 
     @patch("src.services.meeting_service.MeetingCleanup")
     @patch("src.services.meeting_service.EnhancedImapClient")
-    def test_todays_meeting_detail_delegates(
+    def test_meeting_detail_delegates(
         self,
         mock_imap_cls: MagicMock,
         mock_cleanup: MagicMock,
         config: MagicMock,
     ) -> None:
-        """Verify todays_meeting_detail delegates to MeetingCleanup.show_meeting_detail."""
+        """Verify meeting_detail delegates to MeetingCleanup.show_meeting_detail_by_id."""
         mock_client = MagicMock()
         mock_client.connect.return_value = True
         mock_imap_cls.return_value = mock_client
 
-        service = MeetingServiceInteractive(config)
-        service.todays_meeting_detail(3)
+        service = MeetingService(config)
+        service.meeting_detail("today", "gcal:evt1")
 
-        mock_cleanup.show_meeting_detail.assert_called_once_with(mock_client, config, 3)
+        mock_cleanup.show_meeting_detail_by_id.assert_called_once()
+        call_args = mock_cleanup.show_meeting_detail_by_id.call_args
+        assert call_args[0][0] == mock_client
+        assert call_args[0][1] == config
+        assert call_args[0][2] == "today"
+        assert call_args[0][3] == "gcal:evt1"
         mock_client.disconnect.assert_called_once()
 
 
-class TestMeetingServiceInteractive:
-    """Tests for MeetingServiceInteractive."""
+class TestMeetingServiceListings:
+    """Tests for todays_meetings and meetings."""
 
     @patch("src.services.meeting_service.MeetingCleanup")
     @patch("src.services.meeting_service.EnhancedImapClient")
-    def test_todays_meetings_passes_interactive_true(
+    def test_todays_meetings_calls_list_without_interactive(
         self,
         mock_imap_cls: MagicMock,
         mock_cleanup: MagicMock,
         config: MagicMock,
     ) -> None:
-        """Verify todays_meetings passes interactive=True."""
+        """Verify todays_meetings calls list_todays_meetings without interactive param."""
         mock_client = MagicMock()
         mock_client.connect.return_value = True
         mock_imap_cls.return_value = mock_client
 
-        service = MeetingServiceInteractive(config)
+        service = MeetingService(config)
         service.todays_meetings()
 
+        mock_cleanup.list_todays_meetings.assert_called_once()
         call_kwargs = mock_cleanup.list_todays_meetings.call_args
-        assert call_kwargs.kwargs.get("interactive") is True
+        assert "interactive" not in call_kwargs.kwargs
 
     @patch("src.services.meeting_service.MeetingCleanup")
     @patch("src.services.meeting_service.EnhancedImapClient")
-    def test_meetings_passes_interactive_true(
+    def test_meetings_calls_list_without_interactive(
         self,
         mock_imap_cls: MagicMock,
         mock_cleanup: MagicMock,
         config: MagicMock,
     ) -> None:
-        """Verify meetings passes interactive=True."""
+        """Verify meetings calls list_todays_meetings without interactive param."""
         mock_client = MagicMock()
         mock_client.connect.return_value = True
         mock_imap_cls.return_value = mock_client
@@ -137,11 +128,10 @@ class TestMeetingServiceInteractive:
         from datetime import date
         mock_cleanup._parse_date.return_value = date(2026, 3, 10)
 
-        service = MeetingServiceInteractive(config)
+        service = MeetingService(config)
         service.meetings("10.03.2026")
 
+        mock_cleanup.list_todays_meetings.assert_called_once()
         call_kwargs = mock_cleanup.list_todays_meetings.call_args
-        assert call_kwargs.kwargs.get("interactive") is True
+        assert "interactive" not in call_kwargs.kwargs
         assert call_kwargs.kwargs.get("target_date") == date(2026, 3, 10)
-
-

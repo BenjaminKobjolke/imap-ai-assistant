@@ -37,6 +37,7 @@ def _gcal_event_to_meeting_dict(event: dict, cal_name: str) -> dict | None:
     end_dt = datetime.fromisoformat(end_str).astimezone() if end_str else None
 
     return {
+        "id": f"gcal:{event['id']}",
         "start": start_dt,
         "end": end_dt,
         "subject": event.get("summary", "(no title)"),
@@ -367,7 +368,7 @@ class MeetingCleanup:
         messages = client.client.get_all_messages(folder=folder)
 
         todays: list[dict] = []
-        for _, email_message in (messages or []):
+        for imap_msg_id, email_message in (messages or []):
             subject = email_message.subject or "(no subject)"
             try:
                 ics_data = MeetingCleanup._get_ics_data(email_message)
@@ -393,6 +394,7 @@ class MeetingCleanup:
                             else:
                                 occ_end = None
                             todays.append({
+                                "id": f"imap:{imap_msg_id}",
                                 "start": occ_start,
                                 "end": occ_end,
                                 "subject": subject,
@@ -408,6 +410,7 @@ class MeetingCleanup:
                     if local_start.date() == today:
                         local_end = parsed['dtend'].astimezone() if parsed.get('dtend') else None
                         todays.append({
+                            "id": f"imap:{imap_msg_id}",
                             "start": local_start,
                             "end": local_end,
                             "subject": subject,
@@ -482,6 +485,8 @@ class MeetingCleanup:
                     imap_m["source"] = "both"
                     imap_m.setdefault("gcal_event", gcal_m.get("gcal_event"))
                     imap_m.setdefault("calendar_name", gcal_m.get("calendar_name"))
+                    # Prefer GCal ID for merged meetings
+                    imap_m["id"] = gcal_m["id"]
                     matched = True
                     break
             if not matched:
@@ -495,40 +500,31 @@ class MeetingCleanup:
         config,
         target_date: date | None = None,
         gcal_client: object | None = None,
-        *,
-        interactive: bool = True,
     ) -> None:
-        """List meetings for a given date with optional interactive detail selection."""
+        """List meetings for a given date."""
         target = target_date or date.today()
         meetings = MeetingCleanup.get_todays_meetings(
             client, config, target_date=target, gcal_client=gcal_client,
         )
         list_meetings(meetings, target)
 
-        if not meetings or not interactive:
-            return
-
-        max_idx = len(meetings)
-        while True:
-            raw = input(f"\nEnter meeting number [1-{max_idx}] or 'q' to quit: ").strip().lower()
-            if raw in ("q", "quit", ""):
-                break
-            try:
-                idx = int(raw)
-                if 1 <= idx <= max_idx:
-                    _show_detail_fn(meetings[idx - 1])
-                else:
-                    send_output(f"  Please enter 1-{max_idx}")
-            except ValueError:
-                send_output(f"  Please enter 1-{max_idx}")
-
     @staticmethod
-    def show_meeting_detail(client, config, index: int) -> None:
-        """Show full details for a specific meeting by 1-based index."""
-        meetings = MeetingCleanup.get_todays_meetings(client, config)
+    def show_meeting_detail_by_id(
+        client,
+        config,
+        date_str: str,
+        meeting_id: str,
+        gcal_client: object | None = None,
+    ) -> None:
+        """Show full details for a specific meeting by date and ID."""
+        target_date = MeetingCleanup._parse_date(date_str)
+        meetings = MeetingCleanup.get_todays_meetings(
+            client, config, target_date=target_date, gcal_client=gcal_client,
+        )
 
-        if not meetings or index < 1 or index > len(meetings):
-            send_output(f"\nInvalid meeting index: {index}. Use --todays-meetings to see available indices.")
-            return
+        for m in meetings:
+            if m.get("id") == meeting_id:
+                _show_detail_fn(m)
+                return
 
-        _show_detail_fn(meetings[index - 1])
+        send_output(f"\nMeeting with id {meeting_id} not found for {target_date}.")

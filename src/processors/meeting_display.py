@@ -87,7 +87,9 @@ def list_meetings(meetings: list[dict], target: date) -> None:
         end_str = m["end"].strftime("%H:%M") if m["end"] else "??:??"
         source = _SOURCE_LABELS.get(m.get("source", ""), "")
         source_suffix = f"  {source}" if source else ""
-        send_output(f"  {m['index']:>2}.  {start_str} - {end_str}  {m['subject']}{source_suffix}")
+        mid = m.get("id", "")
+        id_prefix = f"[id:{mid}] " if mid else ""
+        send_output(f"  {id_prefix}{m['index']:>2}.  {start_str} - {end_str}  {m['subject']}{source_suffix}")
     send_output(f"\nTotal: {len(meetings)} meeting(s)")
 
 

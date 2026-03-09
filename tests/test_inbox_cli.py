@@ -94,7 +94,7 @@ class TestListInbox:
 
     @patch.object(InboxCli, "_connect")
     def test_with_messages(self, mock_connect: MagicMock, capsys: object) -> None:
-        """Messages are listed with index, from, subject, date."""
+        """Messages are listed with id, index, from, subject, date."""
         messages = [
             (1, _make_email(subject="Email A", from_address="a@test.com", date="2026-03-01")),
             (2, _make_email(subject="Email B", from_address="b@test.com", date="2026-03-02")),
@@ -107,11 +107,12 @@ class TestListInbox:
         cli.list_inbox()
 
         captured = capsys.readouterr()  # type: ignore[union-attr]
+        assert "[id:1]" in captured.out
         assert "[1]" in captured.out
         assert "a@test.com" in captured.out
         assert "Email A" in captured.out
-        assert "[2]" in captured.out
-        assert "[3]" in captured.out
+        assert "[id:2]" in captured.out
+        assert "[id:3]" in captured.out
         assert "3 email(s)" in captured.out
 
     @patch.object(InboxCli, "_connect")
@@ -137,14 +138,14 @@ class TestShowEmail:
     """Tests for InboxCli.show_email."""
 
     @patch.object(InboxCli, "_connect")
-    def test_valid_index(self, mock_connect: MagicMock, capsys: object) -> None:
-        """Valid index prints email details and body."""
+    def test_valid_id(self, mock_connect: MagicMock, capsys: object) -> None:
+        """Valid ID prints email details and body."""
         messages = [(1, _make_email(subject="Important email", from_address="boss@work.com"))]
         client = _make_client(messages)
         mock_connect.return_value = client
 
         cli = InboxCli(_make_config())
-        cli.show_email(1)
+        cli.show_email("1")
 
         captured = capsys.readouterr()  # type: ignore[union-attr]
         assert "boss@work.com" in captured.out
@@ -152,17 +153,17 @@ class TestShowEmail:
         assert "Hello, this is the body." in captured.out
 
     @patch.object(InboxCli, "_connect")
-    def test_invalid_index(self, mock_connect: MagicMock, capsys: object) -> None:
-        """Out-of-range index prints error."""
+    def test_invalid_id(self, mock_connect: MagicMock, capsys: object) -> None:
+        """Unknown ID prints error."""
         messages = [(1, _make_email())]
         client = _make_client(messages)
         mock_connect.return_value = client
 
         cli = InboxCli(_make_config())
-        cli.show_email(5)
+        cli.show_email("999")
 
         captured = capsys.readouterr()  # type: ignore[union-attr]
-        assert "out of range" in captured.out
+        assert "not found" in captured.out
 
 
 # ===================================================================
@@ -180,26 +181,26 @@ class TestMoveEmail:
         mock_connect.return_value = client
 
         cli = InboxCli(_make_config())
-        cli.move_email(1, "Company/Sales")
+        cli.move_email("42", "Company/Sales")
 
         client.client.client.select_folder.assert_called_with(FOLDER_INBOX)
         client.client.mark_as_read.assert_called_with("42")
         client.client.move_to_folder.assert_called_with(42, "Company/Sales")
 
         captured = capsys.readouterr()  # type: ignore[union-attr]
-        assert "Moved email 1 to 'Company/Sales'" in captured.out
+        assert "Moved email 42 to 'Company/Sales'" in captured.out
 
     @patch.object(InboxCli, "_connect")
-    def test_invalid_index(self, mock_connect: MagicMock, capsys: object) -> None:
-        """Out-of-range index prints error."""
+    def test_invalid_id(self, mock_connect: MagicMock, capsys: object) -> None:
+        """Unknown ID prints error."""
         client = _make_client([(1, _make_email())])
         mock_connect.return_value = client
 
         cli = InboxCli(_make_config())
-        cli.move_email(99, "Trash")
+        cli.move_email("999", "Trash")
 
         captured = capsys.readouterr()  # type: ignore[union-attr]
-        assert "out of range" in captured.out
+        assert "not found" in captured.out
 
 
 # ===================================================================
@@ -217,11 +218,11 @@ class TestTrashEmail:
         mock_connect.return_value = client
 
         cli = InboxCli(_make_config())
-        cli.trash_email(1)
+        cli.trash_email("10")
 
         client.client.move_to_folder.assert_called_with(10, "Trash")
         captured = capsys.readouterr()  # type: ignore[union-attr]
-        assert "Moved email 1 to 'Trash'" in captured.out
+        assert "Moved email 10 to 'Trash'" in captured.out
 
 
 # ===================================================================
@@ -285,21 +286,21 @@ class TestTodoFromEmail:
         mock_todo_cls.return_value = mock_todo_svc
 
         cli = InboxCli(_make_config())
-        cli.todo_from_email(1)
+        cli.todo_from_email("7")
 
         captured = capsys.readouterr()  # type: ignore[union-attr]
         assert "Todo created" in captured.out
-        assert "Moved email 1" in captured.out
+        assert "Moved email 7" in captured.out
         client.client.move_to_folder.assert_called_once()
 
     @patch.object(InboxCli, "_connect")
-    def test_invalid_index(self, mock_connect: MagicMock, capsys: object) -> None:
-        """Out-of-range index prints error."""
+    def test_invalid_id(self, mock_connect: MagicMock, capsys: object) -> None:
+        """Unknown ID prints error."""
         client = _make_client([(1, _make_email())])
         mock_connect.return_value = client
 
         cli = InboxCli(_make_config())
-        cli.todo_from_email(99)
+        cli.todo_from_email("999")
 
         captured = capsys.readouterr()  # type: ignore[union-attr]
-        assert "out of range" in captured.out
+        assert "not found" in captured.out

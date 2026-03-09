@@ -111,7 +111,7 @@ class TestListInvites:
     def test_with_invites(
         self, mock_connect: MagicMock, mock_gcal: MagicMock, capsys: object,
     ) -> None:
-        """Invites are listed with index, subject, time, status."""
+        """Invites are listed with id, index, subject, time, status."""
         invites = [
             _make_invite(subject="Meeting A", summary="Meeting A", message_id=1),
             _make_invite(subject="Meeting B", summary="Meeting B", message_id=2),
@@ -128,9 +128,10 @@ class TestListInvites:
             cli.list_invites()
 
         captured = capsys.readouterr()  # type: ignore[union-attr]
+        assert "[id:1]" in captured.out
         assert "[1]" in captured.out
         assert "Meeting A" in captured.out
-        assert "[2]" in captured.out
+        assert "[id:2]" in captured.out
         assert "Meeting B" in captured.out
         assert "2 invite(s)" in captured.out
         assert "Not in calendar" in captured.out
@@ -163,10 +164,10 @@ class TestShowInvite:
 
     @patch.object(InvitesCli, "_create_gcal_client")
     @patch.object(InvitesCli, "_connect")
-    def test_valid_index(
+    def test_valid_id(
         self, mock_connect: MagicMock, mock_gcal: MagicMock, capsys: object,
     ) -> None:
-        """Valid index prints invite details and conflicts."""
+        """Valid ID prints invite details and conflicts."""
         invites = [_make_invite()]
         client = _make_client()
         mock_connect.return_value = client
@@ -181,7 +182,7 @@ class TestShowInvite:
             ),
         ):
             cli = InvitesCli(_make_config())
-            cli.show_invite(1)
+            cli.show_invite("1")
 
         captured = capsys.readouterr()  # type: ignore[union-attr]
         assert "Team Meeting" in captured.out
@@ -191,10 +192,10 @@ class TestShowInvite:
 
     @patch.object(InvitesCli, "_create_gcal_client")
     @patch.object(InvitesCli, "_connect")
-    def test_invalid_index(
+    def test_invalid_id(
         self, mock_connect: MagicMock, mock_gcal: MagicMock, capsys: object,
     ) -> None:
-        """Out-of-range index prints error."""
+        """Unknown ID prints error."""
         invites = [_make_invite()]
         client = _make_client()
         mock_connect.return_value = client
@@ -202,10 +203,10 @@ class TestShowInvite:
 
         with patch.object(InvitesCli, "_scan_invites", return_value=invites):
             cli = InvitesCli(_make_config())
-            cli.show_invite(5)
+            cli.show_invite("999")
 
         captured = capsys.readouterr()  # type: ignore[union-attr]
-        assert "out of range" in captured.out
+        assert "not found" in captured.out
 
     @patch.object(InvitesCli, "_create_gcal_client")
     @patch.object(InvitesCli, "_connect")
@@ -223,7 +224,7 @@ class TestShowInvite:
             patch("src.processors.invite_processor.InviteProcessor._check_exists", return_value=False),
         ):
             cli = InvitesCli(_make_config())
-            cli.show_invite(1)
+            cli.show_invite("1")
 
         captured = capsys.readouterr()  # type: ignore[union-attr]
         assert "CANCELLED" in captured.out
@@ -264,7 +265,7 @@ class TestAcceptInvite:
             ),
         ):
             cli = InvitesCli(_make_config())
-            cli.accept_invite(1)
+            cli.accept_invite("1")
 
         captured = capsys.readouterr()  # type: ignore[union-attr]
         assert "Added to Google Calendar" in captured.out
@@ -292,7 +293,7 @@ class TestAcceptInvite:
             ),
         ):
             cli = InvitesCli(_make_config())
-            cli.accept_invite(1)
+            cli.accept_invite("1")
 
         captured = capsys.readouterr()  # type: ignore[union-attr]
         assert "Already in calendar" in captured.out
@@ -314,17 +315,17 @@ class TestAcceptInvite:
             patch("src.processors.invite_processor.InviteProcessor._check_exists", return_value=False),
         ):
             cli = InvitesCli(_make_config())
-            cli.accept_invite(1)
+            cli.accept_invite("1")
 
         captured = capsys.readouterr()  # type: ignore[union-attr]
         assert "Google Calendar not available" in captured.out
 
     @patch.object(InvitesCli, "_create_gcal_client")
     @patch.object(InvitesCli, "_connect")
-    def test_invalid_index(
+    def test_invalid_id(
         self, mock_connect: MagicMock, mock_gcal: MagicMock, capsys: object,
     ) -> None:
-        """Out-of-range index prints error."""
+        """Unknown ID prints error."""
         invites = [_make_invite()]
         client = _make_client()
         mock_connect.return_value = client
@@ -332,10 +333,10 @@ class TestAcceptInvite:
 
         with patch.object(InvitesCli, "_scan_invites", return_value=invites):
             cli = InvitesCli(_make_config())
-            cli.accept_invite(99)
+            cli.accept_invite("999")
 
         captured = capsys.readouterr()  # type: ignore[union-attr]
-        assert "out of range" in captured.out
+        assert "not found" in captured.out
 
 
 # ===================================================================
@@ -361,17 +362,17 @@ class TestArchiveInvite:
             return_value=True,
         ):
             cli = InvitesCli(_make_config())
-            cli.archive_invite(1)
+            cli.archive_invite("1")
 
         captured = capsys.readouterr()  # type: ignore[union-attr]
         assert "Archived invite" in captured.out
 
     @patch.object(InvitesCli, "_create_gcal_client")
     @patch.object(InvitesCli, "_connect")
-    def test_invalid_index(
+    def test_invalid_id(
         self, mock_connect: MagicMock, mock_gcal: MagicMock, capsys: object,
     ) -> None:
-        """Out-of-range index prints error."""
+        """Unknown ID prints error."""
         invites = [_make_invite()]
         client = _make_client()
         mock_connect.return_value = client
@@ -379,10 +380,10 @@ class TestArchiveInvite:
 
         with patch.object(InvitesCli, "_scan_invites", return_value=invites):
             cli = InvitesCli(_make_config())
-            cli.archive_invite(99)
+            cli.archive_invite("999")
 
         captured = capsys.readouterr()  # type: ignore[union-attr]
-        assert "out of range" in captured.out
+        assert "not found" in captured.out
 
 
 # ===================================================================
@@ -411,7 +412,7 @@ class TestDeleteCancelledInvite:
             return_value=True,
         ):
             cli = InvitesCli(_make_config())
-            cli.delete_cancelled_invite(1)
+            cli.delete_cancelled_invite("1")
 
         captured = capsys.readouterr()  # type: ignore[union-attr]
         assert "Deleted from Google Calendar" in captured.out
@@ -434,7 +435,7 @@ class TestDeleteCancelledInvite:
             return_value=True,
         ):
             cli = InvitesCli(_make_config())
-            cli.delete_cancelled_invite(1)
+            cli.delete_cancelled_invite("1")
 
         captured = capsys.readouterr()  # type: ignore[union-attr]
         assert "Deleted from Google Calendar" not in captured.out
@@ -442,10 +443,10 @@ class TestDeleteCancelledInvite:
 
     @patch.object(InvitesCli, "_create_gcal_client")
     @patch.object(InvitesCli, "_connect")
-    def test_invalid_index(
+    def test_invalid_id(
         self, mock_connect: MagicMock, mock_gcal: MagicMock, capsys: object,
     ) -> None:
-        """Out-of-range index prints error."""
+        """Unknown ID prints error."""
         invites = [_make_cancelled_invite()]
         client = _make_client()
         mock_connect.return_value = client
@@ -453,7 +454,7 @@ class TestDeleteCancelledInvite:
 
         with patch.object(InvitesCli, "_scan_invites", return_value=invites):
             cli = InvitesCli(_make_config())
-            cli.delete_cancelled_invite(99)
+            cli.delete_cancelled_invite("999")
 
         captured = capsys.readouterr()  # type: ignore[union-attr]
-        assert "out of range" in captured.out
+        assert "not found" in captured.out
