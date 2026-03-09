@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import ClassVar
 
@@ -170,6 +170,33 @@ class GoogleCalendarClient:
             return event_id
         except Exception as e:
             logger.error("Failed to create event in Google Calendar: %s", e)
+            return None
+
+    def create_all_day_event(self, summary: str, event_date: date) -> str | None:
+        """Create an all-day calendar event.
+
+        Returns the Google Calendar event ID on success, None on failure.
+        """
+        if not self.service:
+            logger.error("Google Calendar service not initialized")
+            return None
+
+        next_day = event_date + timedelta(days=1)
+        event_body = {
+            "summary": summary,
+            "start": {"date": event_date.isoformat()},
+            "end": {"date": next_day.isoformat()},
+        }
+
+        try:
+            result = self.service.events().insert(
+                calendarId=self.calendar_id, body=event_body, sendUpdates="none",
+            ).execute()
+            event_id = result.get("id")
+            logger.info("All-day event created in Google Calendar, id=%s", event_id)
+            return event_id
+        except Exception as e:
+            logger.error("Failed to create all-day event in Google Calendar: %s", e)
             return None
 
     def add_event_from_ics(self, ics_data: bytes) -> str | None:

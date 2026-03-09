@@ -235,11 +235,11 @@ class CalendarService:
     # -- Shared parse helpers ---------------------------------------------------
 
     def _parse_add_date_args(self, raw_args: list[str]) -> tuple | None:
-        """Parse --add-date arguments into (title, date, start_hour, start_minute, end_hour, end_minute, calendar_query)."""
+        """Parse --add-date arguments into (title, date, start_hour, start_minute, end_hour, end_minute, calendar_query, all_day)."""
         from datetime import date as date_type
 
         if not raw_args:
-            send_output("Usage: --add-date TITLE [DATE] [START[-END]] [@CALENDAR]")
+            send_output("Usage: --add-date TITLE [DATE] [START[-END]] [@CALENDAR] [allday]")
             return None
 
         title = raw_args[0]
@@ -251,10 +251,15 @@ class CalendarService:
         end_hour: int | None = None
         end_minute: int = 0
         calendar_query: str | None = None
+        all_day: bool = False
 
         time_re = re.compile(r"^(\d{1,2})(?::(\d{2}))?(?:-(\d{1,2})(?::(\d{2}))?)?$")
 
         for token in tokens:
+            if token.lower() == "allday":
+                all_day = True
+                continue
+
             if token.startswith("@"):
                 calendar_query = token[1:]
                 continue
@@ -280,15 +285,16 @@ class CalendarService:
             send_output(f"Unrecognised argument: {token}")
             return None
 
-        now = datetime.now()
-        if start_hour is None:
-            start_hour = now.hour
-            start_minute = 0
-        if end_hour is None:
-            end_hour = start_hour + 1
-            end_minute = start_minute
+        if not all_day:
+            now = datetime.now()
+            if start_hour is None:
+                start_hour = now.hour
+                start_minute = 0
+            if end_hour is None:
+                end_hour = start_hour + 1
+                end_minute = start_minute
 
-        return title, event_date, start_hour, start_minute, end_hour, end_minute, calendar_query
+        return title, event_date, start_hour, start_minute, end_hour, end_minute, calendar_query, all_day
 
     # -- Abstract methods that differ between Interactive and AI -----------------
 
@@ -305,14 +311,14 @@ class CalendarService:
     def _create_event_core(self, raw_args: list[str]) -> tuple | None:
         """Parse args, authenticate, resolve calendar, create event.
 
-        Returns (gcal_client, event_id, title, event_date, start_hour, start_minute, end_hour, end_minute, cal_name)
+        Returns (gcal_client, event_id, title, event_date, start_hour, start_minute, end_hour, end_minute, cal_name, all_day)
         or None on failure.
         """
         parsed = self._parse_add_date_args(raw_args)
         if parsed is None:
             return None
 
-        title, event_date, start_hour, start_minute, end_hour, end_minute, calendar_query = parsed
+        title, event_date, start_hour, start_minute, end_hour, end_minute, calendar_query, all_day = parsed
 
         from src.calendar.google_calendar_client import GoogleCalendarClient
 
@@ -332,10 +338,12 @@ class CalendarService:
             calendar_id = resolved_id
             gcal_client.calendar_id = calendar_id
 
-        start_dt = datetime(event_date.year, event_date.month, event_date.day, start_hour, start_minute)
-        end_dt = datetime(event_date.year, event_date.month, event_date.day, end_hour, end_minute)
-
-        event_id = gcal_client.create_event(title, start_dt, end_dt)
+        if all_day:
+            event_id = gcal_client.create_all_day_event(title, event_date)
+        else:
+            start_dt = datetime(event_date.year, event_date.month, event_date.day, start_hour, start_minute)
+            end_dt = datetime(event_date.year, event_date.month, event_date.day, end_hour, end_minute)
+            event_id = gcal_client.create_event(title, start_dt, end_dt)
 
         cal_name = self.config.add_date_calendar_name
         if calendar_query:
@@ -345,7 +353,7 @@ class CalendarService:
             send_output("Failed to create event.")
             return None
 
-        return gcal_client, event_id, title, event_date, start_hour, start_minute, end_hour, end_minute, cal_name
+        return gcal_client, event_id, title, event_date, start_hour, start_minute, end_hour, end_minute, cal_name, all_day
 
 
 class CalendarServiceInteractive(CalendarService):
@@ -357,10 +365,13 @@ class CalendarServiceInteractive(CalendarService):
         if result is None:
             return
 
-        gcal_client, event_id, title, event_date, start_hour, start_minute, end_hour, end_minute, cal_name = result
+        gcal_client, event_id, title, event_date, start_hour, start_minute, end_hour, end_minute, cal_name, all_day = result
 
         date_str = event_date.strftime("%d.%m.%Y")
-        send_output(f"Created: {title} on {date_str} {start_hour:02d}:{start_minute:02d}-{end_hour:02d}:{end_minute:02d} ({cal_name})")
+        if all_day:
+            send_output(f"Created: {title} on {date_str} (all day) ({cal_name})")
+        else:
+            send_output(f"Created: {title} on {date_str} {start_hour:02d}:{start_minute:02d}-{end_hour:02d}:{end_minute:02d} ({cal_name})")
         undo = SchedulerChoice(
             "", [("Keep", "keep"), ("Undo (delete event)", "undo")],
         ).choose()
