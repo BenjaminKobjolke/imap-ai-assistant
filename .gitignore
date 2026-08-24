@@ -214,6 +214,7 @@ debug
 tools/analyze_code_config.bat
 code_analysis_results/
 /logs
-.claude
+.claude/
+/PLAN_*.md
 .mcp.json
 data
