@@ -352,6 +352,21 @@ class EmailProcessor:
         from src.processors.inbox_cli import InboxCli
         InboxCli(self.config).send_todo_from_email(email_id, title, priority, due_date)
 
+    def prepare_reply(self, email_id: str) -> None:
+        """Output email content + cached salutation for drafting a reply."""
+        from src.processors.inbox_cli import InboxCli
+        InboxCli(self.config).prepare_reply(email_id)
+
+    def save_draft_reply(self, email_id: str, body_text: str) -> None:
+        """Save a reply draft to the IMAP Drafts folder."""
+        from src.processors.inbox_cli import InboxCli
+        InboxCli(self.config).save_draft_reply(email_id, body_text)
+
+    def save_salutation(self, email_address: str, salutation: str, is_formal: bool) -> None:
+        """Save a salutation to the cache."""
+        from src.processors.inbox_cli import InboxCli
+        InboxCli(self.config).save_salutation(email_address, salutation, is_formal)
+
     # -- Connection testing -----------------------------------------------------
 
     def test_email(self) -> None:

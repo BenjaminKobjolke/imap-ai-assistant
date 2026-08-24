@@ -111,6 +111,13 @@ def main() -> None:
     parser.add_argument('--send-todo-from-email', nargs=4,
                         metavar=('ID', 'TITLE', 'PRIORITY', 'DUE_DATE'),
                         help='Send confirmed todo from email (id, title, priority, due_date)')
+    parser.add_argument('--prepare-reply', type=str, metavar='ID',
+                        help='Get email content and salutation for drafting a reply')
+    parser.add_argument('--save-draft-reply', type=str, metavar='ID',
+                        help='Save reply draft to IMAP Drafts (reads body from stdin)')
+    parser.add_argument('--save-salutation', nargs=3,
+                        metavar=('EMAIL', 'SALUTATION', 'IS_FORMAL'),
+                        help='Save salutation for email address (IS_FORMAL: true/false)')
     parser.add_argument('--browse', action='store_true',
                         help='Browse IMAP folders and emails interactively')
     parser.add_argument('--search', nargs='?', const='__wizard__', metavar='TERM',
@@ -335,6 +342,20 @@ def main() -> None:
     if args.send_todo_from_email is not None:
         email_id, title, priority, due_date = args.send_todo_from_email
         processor.send_todo_from_email(email_id, title, int(priority), due_date)
+        return
+
+    if args.prepare_reply is not None:
+        processor.prepare_reply(args.prepare_reply)
+        return
+
+    if args.save_draft_reply is not None:
+        body_text = sys.stdin.read()
+        processor.save_draft_reply(args.save_draft_reply, body_text)
+        return
+
+    if args.save_salutation is not None:
+        email_addr, salutation, is_formal_str = args.save_salutation
+        processor.save_salutation(email_addr, salutation, is_formal_str.lower() == "true")
         return
 
     if args.update_cache:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import logging
 import re
 
@@ -273,6 +274,159 @@ class InboxCli:
             send_output(f"Moved email {email_id} to '{target_folder}'")
         finally:
             client.disconnect()
+
+    def prepare_reply(self, email_id: str) -> None:
+        """Output email content + cached salutation for drafting a reply."""
+        client = self._connect()
+        if not client:
+            return
+        try:
+            messages = self._get_messages(client)
+            if not messages:
+                send_output("INBOX is empty.")
+                return
+
+            try:
+                _msg_id, email_msg = self._find_by_id(messages, email_id)
+            except ValueError as e:
+                send_output(f"Error: {e}")
+                return
+
+            from_addr = getattr(email_msg, "from_address", "(unknown)") or "(unknown)"
+            subject = getattr(email_msg, "subject", "(no subject)") or "(no subject)"
+            date = getattr(email_msg, "date", "") or ""
+
+            # Look up cached salutation
+            salutation_text = "unknown"
+            try:
+                from src.search.search_cache import SearchCache
+
+                cache = SearchCache(self._config.search_cache_path)
+                sal = cache.get_salutation(from_addr)
+                if sal:
+                    formality = "formal" if sal["is_formal"] else "informal"
+                    salutation_text = f"{sal['salutation']} ({formality})"
+            except Exception:
+                pass
+
+            send_output(f"From: {from_addr}")
+            send_output(f"Subject: {subject}")
+            send_output(f"Date: {date}")
+            send_output(f"Salutation: {salutation_text}")
+            send_output("--- Body ---")
+
+            body = self._get_body(email_msg, max_chars=3000)
+            send_output(body)
+
+            # When salutation is unknown, include sent email excerpts for context
+            if salutation_text == "unknown":
+                excerpts = self._search_sent_excerpts(client, from_addr)
+                if excerpts:
+                    send_output(f"--- Sent Emails to {from_addr} ---")
+                    for i, excerpt in enumerate(excerpts, 1):
+                        send_output(f"[{i}] {excerpt}")
+        finally:
+            client.disconnect()
+
+    def save_draft_reply(self, email_id: str, body_text: str) -> None:
+        """Save a reply draft to the IMAP Drafts folder."""
+        client = self._connect()
+        if not client:
+            return
+        try:
+            messages = self._get_messages(client)
+            if not messages:
+                send_output("INBOX is empty.")
+                return
+
+            try:
+                _msg_id, email_msg = self._find_by_id(messages, email_id)
+            except ValueError as e:
+                send_output(f"Error: {e}")
+                return
+
+            from_addr = getattr(email_msg, "from_address", "(unknown)") or "(unknown)"
+            subject = getattr(email_msg, "subject", "(no subject)") or "(no subject)"
+            original_body = self._get_body(email_msg)
+
+            from src.processors.draft_email_builder import (
+                DraftEmailBuilder,
+                DraftEmailContent,
+            )
+
+            reply_subject = DraftEmailBuilder.make_reply_subject(subject)
+            footer_html = DraftEmailBuilder.load_footer_html()
+
+            content = DraftEmailContent(
+                to_address=from_addr,
+                subject=reply_subject,
+                greeting="",
+                body_text=body_text,
+                footer_html=footer_html,
+                original_from=from_addr,
+                original_subject=subject,
+                original_body=original_body,
+            )
+
+            builder = DraftEmailBuilder(self._config, client)
+            success = builder.build_and_save(content)
+            if success:
+                send_output(f"Draft saved to 'Drafts': {reply_subject}")
+            else:
+                send_output("Failed to save draft.")
+        finally:
+            client.disconnect()
+
+    def _search_sent_excerpts(
+        self, client: EnhancedImapClient, to_address: str,
+    ) -> list[str]:
+        """Search sent folder for recent emails to *to_address*.
+
+        Returns up to 10 body excerpts (100 chars each).
+        """
+        max_excerpts = 10
+        max_chars = 100
+        try:
+            account = self._config.get_first_account()
+            if not account:
+                return []
+
+            sent_folder = self._config.get_sent_folder(account)
+            messages = client.client.get_all_messages(
+                folder=sent_folder, include_attachments=False,
+            )
+
+            excerpts: list[str] = []
+            for _msg_id, email_msg in messages:
+                to_addr = getattr(email_msg, "to", None) or getattr(email_msg, "to_address", None)
+                if not to_addr or to_address.lower() not in to_addr.lower():
+                    continue
+
+                try:
+                    _subject, _first_line, body = client.extract_email_content(email_msg)
+                    if body:
+                        clean = re.sub(r"<[^>]+>", "", body)
+                        clean = html.unescape(clean)
+                        clean = " ".join(clean.split())
+                        excerpts.append(clean[:max_chars])
+                except Exception:
+                    continue
+
+                if len(excerpts) >= max_excerpts:
+                    break
+
+            return excerpts
+        except Exception:
+            return []
+
+    def save_salutation(self, email_address: str, salutation: str, is_formal: bool) -> None:
+        """Save a salutation to the cache for future lookups."""
+        from src.search.search_cache import SearchCache
+
+        cache = SearchCache(self._config.search_cache_path)
+        cache.save_salutation(email_address, salutation, is_formal=is_formal)
+        formality = "formal" if is_formal else "informal"
+        send_output(f"Salutation saved for {email_address}: {salutation} ({formality})")
 
     @staticmethod
     def _get_body(email_msg: object, max_chars: int = 5000) -> str:

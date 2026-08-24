@@ -30,6 +30,7 @@ SYSTEM_PROMPT_EXTRA = (
     "   - 'todo': see Todo from Email workflow below\n"
     "   - 'skip'/'next': move on\n"
     "4. If user doesn't know folder names, call list_folders\n"
+    "   - 'reply'/'answer': see Email Reply Workflow below\n"
     "5. After move/trash/todo, call list_inbox again before next operation\n"
     "6. When done, summarize actions taken\n\n"
     "## Todo from Email Workflow\n"
@@ -62,7 +63,28 @@ SYSTEM_PROMPT_EXTRA = (
     "   - For regular invites: accept_invite with the invite's ID (adds to calendar) or archive_invite\n"
     "   - For cancelled invites: delete_cancelled_invite with the invite's ID (removes from calendar) or archive_invite\n"
     "4. After each action, call list_invites again before next operation\n"
-    "5. When done, summarize actions taken"
+    "5. When done, summarize actions taken\n\n"
+    "## Email Reply Workflow\n"
+    "When the user asks to reply to, answer, or create a response to an email:\n"
+    "1. If no specific email is identified yet, call list_inbox first\n"
+    "2. Call prepare_reply with the email's ID to get content and sender salutation\n"
+    "3. Generate a draft reply:\n"
+    "   - Use the salutation for the greeting (formal: 'Sehr geehrte/r {salutation},' "
+    "informal: 'Hallo {salutation},')\n"
+    "   - If salutation is 'unknown':\n"
+    "     a. Check the '--- Sent Emails ---' section for clues about how the user\n"
+    "        previously addressed this person (greeting patterns like 'Hallo X,' or\n"
+    "        'Sehr geehrte/r X,')\n"
+    "     b. If found, suggest the salutation and formality to the user for confirmation\n"
+    "     c. If not found, ask the user how to address the recipient and whether formal/informal\n"
+    "     d. Once confirmed, call save_salutation with the email address (from the From: line),\n"
+    "        the salutation text, and is_formal — so it is remembered for future emails\n"
+    "   - Write the reply body matching the language and tone of the original\n"
+    "   - Do NOT add a closing greeting or signature — they are added automatically from the email template\n"
+    "4. Present the full draft as a preview\n"
+    "5. Ask: 'Shall I save this as a draft, or would you like to make changes?'\n"
+    "6. If the user wants changes, modify and present again\n"
+    "7. When confirmed, call save_draft_reply with email_id and the complete reply text"
 )
 
 
@@ -75,6 +97,22 @@ def _run_cli(*args: str) -> str:
         text=True,
         timeout=120,
         stdin=subprocess.DEVNULL,
+    )
+    text = result.stdout.strip()
+    if result.returncode != 0 and result.stderr.strip():
+        text = f"{text}\n{result.stderr.strip()}" if text else result.stderr.strip()
+    return text or "(no output)"
+
+
+def _run_cli_with_stdin(*args: str, stdin_text: str) -> str:
+    """Run an imap-ai-assistant CLI command with stdin input and return its output."""
+    result = subprocess.run(
+        ["uv", "run", "python", "main.py", *args],
+        cwd=_IMAP_ROOT,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        input=stdin_text,
     )
     text = result.stdout.strip()
     if result.returncode != 0 and result.stderr.strip():
@@ -240,6 +278,30 @@ def _archive_invite_args(params: dict[str, Any]) -> list[str]:
 def _delete_cancelled_invite_args(params: dict[str, Any]) -> list[str]:
     """Build CLI args for delete_cancelled_invite."""
     return ["--delete-cancelled-invite", str(params["invite_id"])]
+
+
+def _prepare_reply_args(params: dict[str, Any]) -> list[str]:
+    """Build CLI args for prepare_reply."""
+    return ["--prepare-reply", str(params["email_id"])]
+
+
+def _save_salutation_args(params: dict[str, Any]) -> list[str]:
+    """Build CLI args for save_salutation."""
+    return [
+        "--save-salutation",
+        params["email_address"],
+        params["salutation"],
+        str(params.get("is_formal", True)).lower(),
+    ]
+
+
+def _save_draft_reply_handler(params: dict[str, Any]) -> None:
+    """Handler for save_draft_reply: sends body_text via stdin."""
+    result = _run_cli_with_stdin(
+        "--save-draft-reply", str(params["email_id"]),
+        stdin_text=params["body_text"],
+    )
+    output(result)
 
 
 # Command definitions matching imap-ai-assistant's @ai_command decorators
@@ -479,7 +541,39 @@ _COMMANDS: list[tuple[CommandDefinition, Any]] = [
         ),
         _delete_cancelled_invite_args,
     ),
+    (
+        CommandDefinition(
+            name="prepare_reply",
+            description="Get email content and sender salutation for drafting a reply",
+            parameters=[
+                CommandParameter("email_id", "The email ID from list_inbox output", "string", required=True),
+            ],
+        ),
+        _prepare_reply_args,
+    ),
+    (
+        CommandDefinition(
+            name="save_salutation",
+            description="Save how to address a contact (salutation) for future emails",
+            parameters=[
+                CommandParameter("email_address", "The contact's email address", "string", required=True),
+                CommandParameter("salutation", "The salutation text (e.g. 'Herr Mueller', 'Tamara')", "string", required=True),
+                CommandParameter("is_formal", "Whether to use formal address (true) or informal (false)", "boolean", required=True),
+            ],
+        ),
+        _save_salutation_args,
+    ),
 ]
+
+
+_SAVE_DRAFT_REPLY_CMD = CommandDefinition(
+    name="save_draft_reply",
+    description="Save a reply draft to the IMAP Drafts folder",
+    parameters=[
+        CommandParameter("email_id", "The email ID from list_inbox output", "string", required=True),
+        CommandParameter("body_text", "The full reply text (greeting + body + closing)", "string", required=True),
+    ],
+)
 
 
 def register(registry: CommandRegistry, config: dict[str, Any], executor: Any) -> PluginInfo:
@@ -489,6 +583,10 @@ def register(registry: CommandRegistry, config: dict[str, Any], executor: Any) -
     for cmd_def, args_fn in _COMMANDS:
         registry.register(cmd_def)
         handlers[cmd_def.name] = _make_handler(args_fn)
+
+    # save_draft_reply uses a custom handler (stdin-based)
+    registry.register(_SAVE_DRAFT_REPLY_CMD)
+    handlers[_SAVE_DRAFT_REPLY_CMD.name] = _save_draft_reply_handler
 
     executor.add_handlers(handlers)
 
