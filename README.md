@@ -229,3 +229,4 @@ Detailed documentation for each feature is available in [`docs/features/`](docs/
 - [Meeting Invite Processing](docs/features/process-invites.md)
 - [Meeting Cleanup](docs/features/meeting-cleanup.md)
 - [Configuration](docs/features/configuration.md)
+- [Email Rules (subject tags)](docs/EMAIL_RULES.md)
