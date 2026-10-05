@@ -80,6 +80,8 @@ Contain placeholders for email data, filled at runtime using Python's `string.Te
 | `task_completion_user_prompt.txt` | `$original_task`, `$assignee_response` |
 | `client_response_user_prompt.txt` | `$original_subject`, `$original_content`, `$assigned_task`, `$assignee_response`, `$last_sent_context` |
 
+For the email-to-todo prompt, matching [email rules](../EMAIL_RULES.md#prompt-addition) can append their `prompt` text. It is added after substitution under the heading `Additional instructions:`, so a `$` in the rule text stays literal.
+
 ## JSON Mode
 
 All API calls use `response_format={"type": "json_object"}` to ensure the model returns valid JSON. Responses are parsed with `json.loads()` and validated.

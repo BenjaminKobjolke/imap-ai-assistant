@@ -87,6 +87,7 @@ The workflow also checks for replies from assignees. When an assignee responds:
 ## Special Rules
 
 - [Email rules](../EMAIL_RULES.md) add project tags and can set a default assignee, based on the original sender or on keywords in the subject. Example: emails originally from `@nuernbergmesse.de` get the `#p_produktstrategie_deeps` tag
+- A rule can also [add instructions to the AI prompt](../EMAIL_RULES.md#prompt-addition), for example to keep the sender's name out of the title
 - The todo language matches the language of the email (German if unsure)
 - Context from the email body (person names, company names) is added to the todo name
 

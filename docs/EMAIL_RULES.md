@@ -1,6 +1,6 @@
 # Email Rules (Subject Tags)
 
-Email rules add extra tags, such as a project tag, to the subject of an RTM todo. They are plain lookups in the settings file. No AI is involved.
+Email rules add extra tags, such as a project tag, to the subject of an RTM todo. They are plain lookups in the settings file. Matching a rule involves no AI; a rule can only hand extra instructions to the AI that writes the title (see [Prompt Addition](#prompt-addition)).
 
 ## How the Todo Subject Is Built
 
@@ -77,6 +77,26 @@ The result is the preselected option of the `Assignee` prompt. With `--auto-acce
 There is no command for this key; edit the settings file. Adding a rule again with a command keeps the key. Changing the tag or pattern of a rule in `--setup-tag-rules` recreates the rule and drops it.
 
 The default assignee applies to `--workflow rtm_todos` only. `--todo-from-email` always creates a task for yourself.
+
+## Prompt Addition
+
+A rule can add instructions for the AI with the optional `prompt` key. It works for sender and keyword rules:
+
+```json
+{
+  "pattern": "@nuernbergmesse.de",
+  "tag": "#p_produktstrategie_deeps",
+  "prompt": "Do not add the name of the sender to the title."
+}
+```
+
+The text is appended to the user prompt (`prompts/user_prompt.txt`) under the heading `Additional instructions:`. When several matching rules have a `prompt`, all of them are appended, one per line, sender rules first.
+
+Use it for exceptions of one sender or project. A rule that should hold for every email belongs in `prompts/user_prompt.txt`.
+
+There is no command for this key; edit the settings file. As with `assignee`, changing the tag or pattern of a rule in `--setup-tag-rules` recreates the rule and drops it.
+
+The addition applies wherever rule tags apply: `--workflow rtm_todos`, `--todo-from-email` and the inbox commands. The full prompt that was sent is in `logs/ai.log`.
 
 ## Forwarded Emails
 

@@ -79,7 +79,7 @@ A map of assignee names to their routing configuration:
 
 #### `processing.subject_tag_rules`
 
-Optional rules that add tags to the todo subject and can set a default assignee. See [Email Rules](../EMAIL_RULES.md) for how matching works.
+Optional rules that add tags to the todo subject, can set a default assignee and can add instructions to the AI prompt. See [Email Rules](../EMAIL_RULES.md) for how matching works.
 
 `sender_rules`:
 
@@ -88,6 +88,7 @@ Optional rules that add tags to the todo subject and can set a default assignee.
 | `pattern` | string | Substring of the sender address, e.g. `@example.com` |
 | `tag` | string | Tag added when the rule matches |
 | `assignee` | string | Optional default assignee (`self` or a name from `processing.others`) |
+| `prompt` | string | Optional [instructions appended to the AI prompt](../EMAIL_RULES.md#prompt-addition) when the rule matches |
 
 `keyword_rules`:
 
@@ -97,6 +98,7 @@ Optional rules that add tags to the todo subject and can set a default assignee.
 | `tag` | string | — | Tag added when the rule matches |
 | `match` | string | `"all"` | `all` keywords required, or `any` |
 | `assignee` | string | — | Optional default assignee |
+| `prompt` | string | — | Optional instructions appended to the AI prompt |
 
 ### `allowed_senders`
 
