@@ -20,7 +20,12 @@ call start.bat
 uv run python main.py
 
 # Main execution modes
-uv run python main.py                # Process unread emails and responses
+uv run python main.py                # No arguments: prints help
+uv run python main.py --workflow rtm_todos                # Process unread emails, then assignee responses
+uv run python main.py --workflow rtm_todos --auto-accept  # Same, every prompt answered with its default
+uv run python main.py --workflow rtm_todos --drafts-only  # Same, mails saved as drafts in the main account, nothing sent
+call start_workflow.bat              # Workflow with settings_live.json
+call start_workflow_debug.bat        # Workflow with settings_debug.json, auto-accept
 uv run python main.py --test         # Test all connections
 uv run python main.py --test-email   # Send test email to self, verify arrival via IMAP
 uv run python main.py --status       # Show system status

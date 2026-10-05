@@ -119,15 +119,19 @@ uv run python main.py
 | `--update-cache` | Rebuild email search cache |
 | `--folders FOLDERS` | Semicolon-separated folder list for `--update-cache` |
 | `--dry-run` | Run without sending emails, moving messages, or marking as read |
+| `--drafts-only` / `--no-drafts-only` | Workflow saves the todo and forward mails as drafts in the main account instead of sending; overrides `processing.drafts_only` |
+| `--auto-accept` | Answer every prompt with its default, for unattended runs (e.g. `--workflow rtm_todos --auto-accept`) |
 | `--workflow [NAME]` | Run a workflow by name, or list available workflows if no name given |
 | `--config PATH` | Path to configuration file (default: `settings.json`) |
 
 ### Examples
 
 ```bash
-# Default workflow: process unread emails AND assignee responses
-call start.bat
-# or: uv run python main.py
+# RTM workflow: process unread emails AND assignee responses
+call start_workflow.bat                  # uses settings_live.json, asks before every step
+call start_workflow.bat --auto-accept    # unattended, e.g. from a scheduler
+call start_workflow_debug.bat --dry-run  # uses settings_debug.json, auto-accept, sends nothing
+# or: uv run python main.py --workflow rtm_todos
 
 # Test connections
 uv run python main.py --test
@@ -161,7 +165,7 @@ uv run python main.py --search "from:john@example.com"
 uv run python main.py --search "project update" --date-after 01.01.2026
 
 # Dry run (no side effects)
-uv run python main.py --dry-run
+uv run python main.py --workflow rtm_todos --dry-run
 
 # Use a custom config file
 uv run python main.py --config path/to/settings.json
@@ -217,7 +221,7 @@ imap-ai-assistant/
 
 Detailed documentation for each feature is available in [`docs/features/`](docs/features/):
 
-- [Default Workflow](docs/features/default-workflow.md)
+- [RTM Todos Workflow](docs/workflows/rtm_todos.md)
 - [Email-to-Todo Conversion](docs/features/email-to-todo-conversion.md)
 - [Task Assignment & Routing](docs/features/task-assignment-routing.md)
 - [Response Processing](docs/features/response-processing.md)

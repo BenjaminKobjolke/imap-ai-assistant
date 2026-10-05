@@ -60,16 +60,34 @@ There is one rule per tag. Adding a rule with an existing tag replaces its keywo
 
 All matching rules apply. Their tags are appended in order: sender rules first, then keyword rules.
 
+## Default Assignee
+
+A rule can name a default assignee with the optional `assignee` key. It works for sender and keyword rules:
+
+```json
+{ "pattern": "@nuernbergmesse.de", "tag": "#p_produktstrategie_deeps", "assignee": "markus" }
+```
+
+The value must be `self` or a name from `processing.others`.
+
+The first line of the email wins. The rule assignee is used only when the AI returns `self`, which is the case when the first line names nobody. Typing `Tamara` in the first line still assigns the task to Tamara. When several matching rules have an assignee, the first one applies (sender rules before keyword rules).
+
+The result is the preselected option of the `Assignee` prompt. With `--auto-accept` it is taken without asking.
+
+There is no command for this key; edit the settings file. Adding a rule again with a command keeps the key. Changing the tag or pattern of a rule in `--setup-tag-rules` recreates the rule and drops it.
+
+The default assignee applies to `--workflow rtm_todos` only. `--todo-from-email` always creates a task for yourself.
+
 ## Forwarded Emails
 
-In the `rtm_todos` workflow you forward an email to the processor account. The `From` field of that forwarded email is **your** address, not the address of the original sender. Sender rules are checked against that field, so a rule for the original sender's domain does not match.
+In the `rtm_todos` workflow you forward an email to the processor account, so its `From` field is **your** address. To still match the original sender, sender rules are checked against the `From` field and against the `From:` / `Von:` lines of the quoted message in the body.
 
-Use a keyword rule for forwarded emails. The forwarded subject still contains the original subject text.
+Only the first 800 characters of the body are searched. That covers the header of the forwarded message, not older messages further down in the thread.
 
-| Command | `From` checked by sender rules |
-|---------|--------------------------------|
-| `--workflow rtm_todos` | the person who forwarded the email |
-| `--todo-from-email ID`, `--send-todo-from-email ...` | the original sender (reads the main inbox directly) |
+| Command | Checked by sender rules |
+|---------|-------------------------|
+| `--workflow rtm_todos` | forwarder and quoted `From:` / `Von:` lines |
+| `--todo-from-email ID`, `--send-todo-from-email ...` | `From` field only (reads the main inbox directly) |
 | `--add-todo` | rules are not applied |
 
 ## Commands

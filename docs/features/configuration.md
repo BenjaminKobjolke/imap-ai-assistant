@@ -2,6 +2,8 @@
 
 All runtime configuration is stored in `settings.json`. The `ConfigManager` class (`src/config/settings.py`) loads and validates it at startup.
 
+Another file can be selected with `--config PATH`. The workflow bat files use this: `start_workflow.bat` reads `settings_live.json`, `start_workflow_debug.bat` reads `settings_debug.json`. Commands that change settings write to the selected file.
+
 ## Required Sections
 
 The following sections must be present for the application to start:
@@ -53,6 +55,10 @@ OpenAI API configuration.
 
 Task routing rules. See [Task Assignment & Routing](task-assignment-routing.md) for details.
 
+| Field | Type | Description |
+|-------|------|-------------|
+| `drafts_only` | bool | The `rtm_todos` workflow saves the todo and forward mails as drafts in the main account instead of sending them (default: `false`). `--drafts-only` / `--no-drafts-only` override it. See [Drafts Only](../workflows/rtm_todos.md#drafts-only) |
+
 #### `processing.my_own_tasks`
 
 | Field | Type | Description |
@@ -70,6 +76,27 @@ A map of assignee names to their routing configuration:
 | `additional_subject_tag` | string | Tags added to RTM todo subject |
 | `email_address` | string | Assignee's email address for forwarding |
 | `bcc` | string | Optional BCC address when forwarding |
+
+#### `processing.subject_tag_rules`
+
+Optional rules that add tags to the todo subject and can set a default assignee. See [Email Rules](../EMAIL_RULES.md) for how matching works.
+
+`sender_rules`:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `pattern` | string | Substring of the sender address, e.g. `@example.com` |
+| `tag` | string | Tag added when the rule matches |
+| `assignee` | string | Optional default assignee (`self` or a name from `processing.others`) |
+
+`keyword_rules`:
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `keywords` | array | — | Substrings searched in the subject |
+| `tag` | string | — | Tag added when the rule matches |
+| `match` | string | `"all"` | `all` keywords required, or `any` |
+| `assignee` | string | — | Optional default assignee |
 
 ### `allowed_senders`
 

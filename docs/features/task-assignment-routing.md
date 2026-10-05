@@ -9,6 +9,10 @@ OpenAI analyzes the email content (especially the first line) and returns an `as
 - `"self"` — the task is for the user (processed with `my_own_tasks` rules)
 - Any other name — matched against the `processing.others` configuration
 
+When the AI returns `"self"`, a matching [email rule](../EMAIL_RULES.md#default-assignee) with an `assignee` key replaces it. A name given in the first line always wins over the rule.
+
+The result is the preselected option of the `Assignee` prompt. With `--auto-accept` it is used without asking.
+
 ## Routing Rules
 
 Each assignee has a set of routing rules defined in `settings.json` under `processing`:
@@ -74,4 +78,5 @@ These headers are added to the RTM email, the forwarded email, and the moved ori
 
 **Source files:**
 - `src/processors/task_processor.py` — routing logic and email forwarding
+- `src/services/todo_service.py` — `resolve_rule_assignee()`, `forwarded_senders()`
 - `src/config/settings.py` — `get_processing_rules()`, `get_other_people_names()`
