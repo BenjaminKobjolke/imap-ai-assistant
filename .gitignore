@@ -218,3 +218,12 @@ code_analysis_results/
 /PLAN_*.md
 .mcp.json
 data
+tickets/
+HANDOFF.md
+claude-plans/
+PLAN.md
+graphify-out/
+tmp/commit_msg.tmp
+.reasonix/
+settings_live.json
+settings_debug.json
