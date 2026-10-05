@@ -15,14 +15,23 @@ FORWARDED_BODY = (
     "Subject: DeePS - finale Anpassungen\n"
 )
 
+SENDER_PROMPT = "Do not add the name of the sender to the title."
+KEYWORD_PROMPT = "Start the title with 'Report'."
+
 RULES = {
     "sender_rules": [
-        {"pattern": "@nuernbergmesse.de", "tag": "#p_deeps", "assignee": "markus"},
+        {"pattern": "@nuernbergmesse.de", "tag": "#p_deeps", "assignee": "markus", "prompt": SENDER_PROMPT},
         {"pattern": "@example.com", "tag": "#example"},
     ],
     "keyword_rules": [
         {"keywords": ["invoice", "urgent"], "tag": "#billing", "match": "all"},
-        {"keywords": ["report", "summary"], "tag": "#reports", "match": "any", "assignee": "tamara"},
+        {
+            "keywords": ["report", "summary"],
+            "tag": "#reports",
+            "match": "any",
+            "assignee": "tamara",
+            "prompt": KEYWORD_PROMPT,
+        },
     ],
 }
 
@@ -60,6 +69,18 @@ class TestResolveRuleAssignee:
 
     def test_matching_rule_without_assignee_returns_none(self, service: TodoService) -> None:
         assert service.resolve_rule_assignee("x@example.com", "Hello") is None
+
+
+class TestResolveRulePrompt:
+    def test_sender_and_keyword_prompts_joined_sender_first(self, service: TodoService) -> None:
+        prompt = service.resolve_rule_prompt("x@nuernbergmesse.de", "Weekly Report")
+        assert prompt == f"{SENDER_PROMPT}\n{KEYWORD_PROMPT}"
+
+    def test_matching_rule_without_prompt_returns_empty(self, service: TodoService) -> None:
+        assert service.resolve_rule_prompt("x@example.com", "Hello") == ""
+
+    def test_no_match_returns_empty(self, service: TodoService) -> None:
+        assert service.resolve_rule_prompt("a@b.c", "Hello") == ""
 
 
 class TestForwardedSenders:

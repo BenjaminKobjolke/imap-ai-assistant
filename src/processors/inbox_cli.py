@@ -191,12 +191,15 @@ class InboxCli:
                 return
 
             openai_client = OpenAIClient(api_key, model, max_tokens, temperature, other_people)
-            result = TodoService.generate_todo(openai_client, subject, first_line, body_excerpt)
+            todo_svc = TodoService(self._config)
+            result = TodoService.generate_todo(
+                openai_client, subject, first_line, body_excerpt,
+                todo_svc.resolve_rule_prompt(from_address, subject),
+            )
             if not result:
                 send_output("Failed to generate todo from email.")
                 return
 
-            todo_svc = TodoService(self._config)
             rules = self._config.get_processing_rules("self")
             subject_tag = rules[CFG_ADDITIONAL_SUBJECT_TAG]
 

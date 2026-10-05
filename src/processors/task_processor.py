@@ -59,9 +59,15 @@ class TaskProcessor:
             )
             send_output(f"Processing email from {email_message.from_address}: {subject}")
 
+            # Sender rules must also see who wrote a forwarded mail
+            rule_sender = f"{email_message.from_address} {forwarded_senders(body_excerpt)}"
+
             # Process with OpenAI
             logger.info("📨 About to call process_email_to_todo...")
-            result = TodoService.generate_todo(self.openai_client, subject, first_line, body_excerpt)
+            result = TodoService.generate_todo(
+                self.openai_client, subject, first_line, body_excerpt,
+                self._todo_processor.resolve_rule_prompt(rule_sender, subject),
+            )
             if not result:
                 logger.error(f"Failed to generate todo for message {message_id}")
                 return False
@@ -70,9 +76,6 @@ class TaskProcessor:
 
             # Let user review/edit todo fields individually
             result = TodoService.edit_todo(result)
-
-            # Sender rules must also see who wrote a forwarded mail
-            rule_sender = f"{email_message.from_address} {forwarded_senders(body_excerpt)}"
 
             # Let user review/edit assignee; a rule assignee applies only when no name was given
             rule_assignee = self._todo_processor.resolve_rule_assignee(rule_sender, subject)

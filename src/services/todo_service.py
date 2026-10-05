@@ -44,12 +44,13 @@ class TodoService:
         subject: str,
         first_line: str,
         body_excerpt: str,
+        extra_instructions: str = "",
     ) -> TodoResult | None:
         """AI-generate an RTM todo from email content.
 
         Returns a TodoResult or None on failure.
         """
-        return openai_client.process_email_to_todo(subject, first_line, body_excerpt)
+        return openai_client.process_email_to_todo(subject, first_line, body_excerpt, extra_instructions)
 
     @staticmethod
     def edit_todo(result: TodoResult) -> TodoResult:
@@ -126,6 +127,10 @@ class TodoService:
                 return str(rule["assignee"])
         return None
 
+    def resolve_rule_prompt(self, sender: str, subject: str) -> str:
+        """Return the prompt additions of all matching rules, one per line."""
+        return "\n".join(rule["prompt"] for rule in self._matching_rules(sender, subject) if rule.get("prompt"))
+
     def send_todo(
         self,
         todo_text: str,
@@ -163,7 +168,9 @@ class TodoService:
 
         Returns (success, todo_text). Used by inbox-zero.
         """
-        result = TodoService.generate_todo(openai_client, subject, first_line, body_excerpt)
+        result = TodoService.generate_todo(
+            openai_client, subject, first_line, body_excerpt, self.resolve_rule_prompt(from_address, subject),
+        )
         if not result:
             send_output("Failed to generate todo.")
             return False, ""

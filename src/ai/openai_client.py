@@ -93,8 +93,14 @@ class OpenAIClient:
         """Get the client response user prompt template."""
         return self._prompts.client_response_user_prompt_template
 
-    def process_email_to_todo(self, subject: str, first_line: str, body_excerpt: str) -> TodoResult | None:
-        """Process email content into RTM todo format using OpenAI."""
+    def process_email_to_todo(
+        self, subject: str, first_line: str, body_excerpt: str, extra_instructions: str = "",
+    ) -> TodoResult | None:
+        """Process email content into RTM todo format using OpenAI.
+
+        extra_instructions come from matching email rules and let a single
+        sender or project deviate from the general prompt.
+        """
         request_id = None
         start_time = time.time()
 
@@ -112,6 +118,9 @@ class OpenAIClient:
                 body_excerpt=body_excerpt,
                 assignees=assignees_str
             )
+            # Appended after substitution so a "$" in rule text is kept literally
+            if extra_instructions:
+                user_prompt = f"{user_prompt}\n\nAdditional instructions:\n{extra_instructions}"
 
             # Log the request
             if self.app_logger:
