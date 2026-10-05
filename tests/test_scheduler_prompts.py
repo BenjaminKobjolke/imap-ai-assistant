@@ -20,6 +20,7 @@ from src.interaction.scheduler_prompts import (
     scheduler_choose,
     scheduler_confirm,
     send_output,
+    set_auto_accept,
     start_output_capture,
     stop_output_capture,
 )
@@ -36,18 +37,6 @@ class TestReExports:
         from interactions_sdk import InteractionChoice
         assert SchedulerChoice is InteractionChoice
 
-    def test_scheduler_confirm_is_confirm(self):
-        from interactions_sdk import confirm
-        assert scheduler_confirm is confirm
-
-    def test_scheduler_ask_is_ask(self):
-        from interactions_sdk import ask
-        assert scheduler_ask is ask
-
-    def test_scheduler_choose_is_choose(self):
-        from interactions_sdk import choose
-        assert scheduler_choose is choose
-
     def test_send_output_is_output(self):
         from interactions_sdk import output
         assert send_output is output
@@ -56,10 +45,6 @@ class TestReExports:
         from interactions_sdk import is_interactive as sdk_is_interactive
         assert is_interactive is sdk_is_interactive
 
-    def test_ask_or_accept_is_sdk_ask_or_accept(self):
-        from interactions_sdk import ask_or_accept as sdk_ask_or_accept
-        assert ask_or_accept is sdk_ask_or_accept
-
     def test_start_output_capture_is_sdk(self):
         from interactions_sdk import start_output_capture as sdk_start
         assert start_output_capture is sdk_start
@@ -67,6 +52,36 @@ class TestReExports:
     def test_stop_output_capture_is_sdk(self):
         from interactions_sdk import stop_output_capture as sdk_stop
         assert stop_output_capture is sdk_stop
+
+
+@pytest.fixture
+def auto_accept():
+    set_auto_accept(True)
+    yield
+    set_auto_accept(False)
+
+
+@patch("builtins.print")
+@patch("builtins.input", side_effect=AssertionError("prompt was shown"))
+class TestAutoAccept:
+    """With auto-accept on, prompts answer themselves with their default."""
+
+    def test_confirm_returns_default(self, mock_input: MagicMock, mock_print: MagicMock, auto_accept: None):
+        assert scheduler_confirm("Send?", default=True) is True
+        assert scheduler_confirm("Send?", default=False) is False
+
+    def test_ask_returns_default(self, mock_input: MagicMock, mock_print: MagicMock, auto_accept: None):
+        assert scheduler_ask("Name:", default="Bob") == "Bob"
+
+    def test_choose_returns_default(self, mock_input: MagicMock, mock_print: MagicMock, auto_accept: None):
+        assert scheduler_choose("Pick:", ["a", "b"], default=1) == 1
+
+    def test_ask_or_accept_returns_default(self, mock_input: MagicMock, mock_print: MagicMock, auto_accept: None):
+        assert ask_or_accept("Title:", default="Original") == "Original"
+
+    def test_no_default_still_prompts(self, mock_input: MagicMock, mock_print: MagicMock, auto_accept: None):
+        with patch.dict(os.environ, {}, clear=True), pytest.raises(AssertionError, match="prompt was shown"):
+            scheduler_confirm("Send?")
 
 
 class TestAliasesWork:
@@ -117,6 +132,10 @@ class TestAliasesWork:
     def test_ask_or_accept_edit(self, mock_choose: MagicMock, mock_ask: MagicMock):
         result = ask_or_accept("Title:", default="Original")
         assert result == "Edited"
+
+    @patch("interactions_sdk.choose", return_value=0)
+    def test_ask_or_accept_accept(self, mock_choose: MagicMock):
+        assert ask_or_accept("Title:", default="Original") == "Original"
 
     def test_output_capture_round_trip(self):
         import interactions_sdk as sdk

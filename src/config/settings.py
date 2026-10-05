@@ -7,6 +7,7 @@ from typing import Any
 
 from src.constants import (
     CFG_ADDITIONAL_SUBJECT_TAG,
+    CFG_DRAFTS_ONLY,
     CFG_EMAIL_ADDRESS,
     CFG_TARGET_FOLDER,
     DEFAULT_MODEL,
@@ -114,6 +115,11 @@ class ConfigManager:
             CFG_EMAIL_ADDRESS: rules.get(CFG_EMAIL_ADDRESS, ""),
             "bcc": rules.get("bcc", ""),
         }
+
+    @property
+    def drafts_only(self) -> bool:
+        """Whether the workflow saves its outgoing mails as drafts instead of sending them."""
+        return bool(self._config.get("processing", {}).get(CFG_DRAFTS_ONLY, False))
 
     def get_other_people_names(self) -> list[str]:
         """Get list of other people configured for task assignment."""

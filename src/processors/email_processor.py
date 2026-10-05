@@ -23,9 +23,12 @@ logger = logging.getLogger(__name__)
 class EmailProcessor:
     """Main email processor that orchestrates the entire workflow."""
 
-    def __init__(self, config_path: str = "settings.json", dry_run: bool = False):
+    def __init__(self, config_path: str = "settings.json", dry_run: bool = False,
+                 drafts_only: bool | None = None):
         self.config = ConfigManager(config_path)
         self.dry_run = dry_run
+        # None means the caller did not decide; fall back to the settings file
+        self.drafts_only = self.config.drafts_only if drafts_only is None else drafts_only
         self.app_logger = None
         self.imap_client = None
         self.smtp_client = None
@@ -112,7 +115,10 @@ class EmailProcessor:
                 return
 
             self.response_processor = ResponseProcessor(self.config, self.openai_client, dry_run=self.dry_run)
-            self.task_processor = TaskProcessor(self.config, self.smtp_client, self.openai_client, dry_run=self.dry_run)
+            self.task_processor = TaskProcessor(
+                self.config, self.smtp_client, self.openai_client,
+                dry_run=self.dry_run, drafts_only=self.drafts_only,
+            )
 
         except Exception as e:
             logger.error(f"Error initializing clients: {e}")

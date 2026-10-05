@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 
 from src.ai.openai_client import OpenAIClient, TodoResult
 from src.config.settings import ConfigManager
@@ -11,6 +12,19 @@ from src.email.smtp_client import SmtpClient
 from src.interaction.scheduler_prompts import ask_or_accept, scheduler_ask, scheduler_choose, send_output
 
 logger = logging.getLogger(__name__)
+
+_FORWARDED_SENDER_PATTERN = re.compile(r"^(?:From|Von):[ \t]*(.+)$", re.MULTILINE | re.IGNORECASE)
+
+
+def forwarded_senders(body: str) -> str:
+    """Return the original senders quoted in a forwarded body.
+
+    A forwarded mail arrives from the forwarder, so sender rules would
+    otherwise never see who wrote it.
+    """
+    # ponytail: callers pass the 800-char body excerpt, enough for the forward
+    # header at the top; pass the full body if deeper quoted mails must match.
+    return " ".join(match.strip() for match in _FORWARDED_SENDER_PATTERN.findall(body))
 
 
 class TodoService:
@@ -85,27 +99,32 @@ class TodoService:
     # Instance methods (use self._smtp_client and self._config)
     # ------------------------------------------------------------------
 
-    def resolve_extra_tags(self, sender: str, subject: str) -> str:
-        """Evaluate sender and keyword tag rules, return extra tags to append."""
+    def _matching_rules(self, sender: str, subject: str) -> list[dict]:
+        """Return the sender and keyword rules that match, sender rules first."""
         rules = self._config.get_subject_tag_rules()
-        tags: list[str] = []
         sender_lower = sender.lower()
         subject_lower = subject.lower()
 
-        for rule in rules["sender_rules"]:
-            if rule["pattern"].lower() in sender_lower:
-                tags.append(rule["tag"])
+        matched = [rule for rule in rules["sender_rules"] if rule["pattern"].lower() in sender_lower]
 
         for rule in rules["keyword_rules"]:
-            keywords = [kw.lower() for kw in rule["keywords"]]
+            hits = [kw.lower() in subject_lower for kw in rule["keywords"]]
             match_mode = rule.get("match", "all")
-            if match_mode == "all":
-                if all(kw in subject_lower for kw in keywords):
-                    tags.append(rule["tag"])
-            elif match_mode == "any" and any(kw in subject_lower for kw in keywords):
-                tags.append(rule["tag"])
+            if (match_mode == "all" and all(hits)) or (match_mode == "any" and any(hits)):
+                matched.append(rule)
 
-        return " ".join(tags)
+        return matched
+
+    def resolve_extra_tags(self, sender: str, subject: str) -> str:
+        """Evaluate sender and keyword tag rules, return extra tags to append."""
+        return " ".join(rule["tag"] for rule in self._matching_rules(sender, subject))
+
+    def resolve_rule_assignee(self, sender: str, subject: str) -> str | None:
+        """Return the default assignee of the first matching rule that names one."""
+        for rule in self._matching_rules(sender, subject):
+            if rule.get("assignee"):
+                return str(rule["assignee"])
+        return None
 
     def send_todo(
         self,

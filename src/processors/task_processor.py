@@ -18,7 +18,8 @@ from src.constants import (
 from src.email.imap_client import EnhancedImapClient
 from src.email.smtp_client import SmtpClient
 from src.interaction.scheduler_prompts import scheduler_choose, scheduler_confirm, send_output
-from src.services.todo_service import TodoService
+from src.processors.task_draft_writer import TaskDraftWriter
+from src.services.todo_service import TodoService, forwarded_senders
 
 logger = logging.getLogger(__name__)
 
@@ -27,12 +28,14 @@ class TaskProcessor:
     """Handles task assignment and email processing workflow."""
 
     def __init__(self, config: ConfigManager, smtp_client: SmtpClient, openai_client: OpenAIClient,
-                 dry_run: bool = False):
+                 dry_run: bool = False, drafts_only: bool = False):
         self.config = config
         self.smtp_client = smtp_client
         self.openai_client = openai_client
         self.dry_run = dry_run
+        self.drafts_only = drafts_only
         self._todo_processor = TodoService(config)
+        self._draft_writer = TaskDraftWriter(config)
 
     def process_single_email(self, imap_client: EnhancedImapClient, message_id: str, email_message) -> bool:
         """Process a single email message."""
@@ -68,11 +71,16 @@ class TaskProcessor:
             # Let user review/edit todo fields individually
             result = TodoService.edit_todo(result)
 
-            # Let user review/edit assignee
+            # Sender rules must also see who wrote a forwarded mail
+            rule_sender = f"{email_message.from_address} {forwarded_senders(body_excerpt)}"
+
+            # Let user review/edit assignee; a rule assignee applies only when no name was given
+            rule_assignee = self._todo_processor.resolve_rule_assignee(rule_sender, subject)
+            suggested = rule_assignee if rule_assignee and result.assignee == "self" else result.assignee
             assignee_options = ["self", *self.config.get_other_people_names()]
-            default_index = assignee_options.index(result.assignee) if result.assignee in assignee_options else 0
+            default_index = assignee_options.index(suggested) if suggested in assignee_options else 0
             assignee_index = scheduler_choose(
-                f"Assignee for this task (AI suggested: {result.assignee}):",
+                f"Assignee for this task (suggested: {suggested}):",
                 assignee_options,
                 default=default_index,
             )
@@ -86,7 +94,7 @@ class TaskProcessor:
             subject_tag = processing_rules[CFG_ADDITIONAL_SUBJECT_TAG]
 
             # Append extra tags from sender/keyword rules
-            extra_tags = self._todo_processor.resolve_extra_tags(email_message.from_address, subject)
+            extra_tags = self._todo_processor.resolve_extra_tags(rule_sender, subject)
             if extra_tags:
                 subject_tag = f"{subject_tag} {extra_tags}"
 
@@ -116,20 +124,28 @@ class TaskProcessor:
                             f"forward to {assignee_email or 'N/A'})")
                 return True
 
-            if not scheduler_confirm(f"Send todo to RTM? [{todo_text} {subject_tag}]", default=True):
+            todo_prompt = "Save todo as draft?" if self.drafts_only else "Send todo to RTM?"
+            if not scheduler_confirm(f"{todo_prompt} [{todo_text} {subject_tag}]", default=True):
                 logger.info("User declined sending todo to RTM — skipping")
                 return False
 
-            success, sent_message_bytes = self._todo_processor.send_todo(
-                todo_text, subject_tag,
-                subject, email_message.from_address, task_tracking_headers,
-            )
+            sent_message_bytes: bytes | None = None
+            if self.drafts_only:
+                success = self._draft_writer.save_rtm_todo(
+                    todo_text, subject_tag,
+                    subject, email_message.from_address, task_tracking_headers,
+                )
+            else:
+                success, sent_message_bytes = self._todo_processor.send_todo(
+                    todo_text, subject_tag,
+                    subject, email_message.from_address, task_tracking_headers,
+                )
 
             if not success:
                 logger.error(f"Failed to send RTM todo for message {message_id}")
                 return False
 
-            send_output("Todo sent to RTM")
+            send_output("Todo saved as draft" if self.drafts_only else "Todo sent to RTM")
 
             # Mark as read on processor account
             if not imap_client.mark_message_as_read(message_id):
@@ -216,13 +232,26 @@ class TaskProcessor:
                     logger.info(f"Found original email: {original_email_message.subject}")
 
                     # Forward email to assignee if not self
+                    forward_prompt = (
+                        f"Save forward to {assignee} ({assignee_email}) as draft?" if self.drafts_only
+                        else f"Forward email to {assignee} ({assignee_email})?"
+                    )
                     if assignee != "self" and assignee_email and todo_text and scheduler_confirm(
-                        f"Forward email to {assignee} ({assignee_email})?", default=True
+                        forward_prompt, default=True
                     ):
-                        success = self._forward_to_assignee(
-                            source_client, source_account_config, original_email_message,
-                            assignee, assignee_email, todo_text, bcc_email, task_tracking_headers or {}
-                        )
+                        headers = task_tracking_headers or {}
+                        if self.drafts_only:
+                            success = self._draft_writer.save_forward(
+                                original_email_message, assignee_email, todo_text, bcc_email,
+                                headers, self._forward_note(headers),
+                            )
+                            if success:
+                                send_output(f"Forward to {assignee} saved as draft")
+                        else:
+                            success = self._forward_to_assignee(
+                                source_client, source_account_config, original_email_message,
+                                assignee, assignee_email, todo_text, bcc_email, headers
+                            )
                         if not success:
                             logger.warning(f"Failed to forward original email to {assignee}")
 
@@ -257,48 +286,31 @@ class TaskProcessor:
             logger.info(f"Forwarding original email to {assignee} at {assignee_email}" +
                        (f" with BCC to {bcc_email}" if bcc_email else ""))
 
+            forward_args = {
+                "email_message": original_email_message,
+                "to_addresses": [assignee_email],
+                "new_subject": todo_text,
+                "smtp_server": source_account_config.get("server"),
+                "smtp_port": 587,
+                "smtp_username": source_account_config.get("username"),
+                "smtp_password": source_account_config.get("password"),
+                "sender_email": source_account_config.get("email_address"),
+                "bcc_addresses": bcc_list,
+                "additional_message": self._forward_note(task_tracking_headers),
+            }
+
             # Try to add task tracking headers to forwarded email
             try:
                 forward_success = source_client.client.forward_email(
-                    email_message=original_email_message,
-                    to_addresses=[assignee_email],
-                    new_subject=todo_text,
-                    smtp_server=source_account_config.get("server"),
-                    smtp_port=587,
-                    smtp_username=source_account_config.get("username"),
-                    smtp_password=source_account_config.get("password"),
-                    sender_email=source_account_config.get("email_address"),
-                    bcc_addresses=bcc_list,
-                    additional_message=(
-                        "This task has been assigned to you.\n\nTask ID: "
-                        f"{task_tracking_headers.get(HEADER_TASK_ID, 'unknown')}"
-                        "\nForwarded by IMAP AI Assistant"
-                    ),
-                    custom_headers=task_tracking_headers
+                    **forward_args, custom_headers=task_tracking_headers,
                 )
             except TypeError as e:
-                if "custom_headers" in str(e):
-                    logger.warning(
-                        "forward_email doesn't support custom_headers yet - forwarding without tracking"
-                    )
-                    forward_success = source_client.client.forward_email(
-                        email_message=original_email_message,
-                        to_addresses=[assignee_email],
-                        new_subject=todo_text,
-                        smtp_server=source_account_config.get("server"),
-                        smtp_port=587,
-                        smtp_username=source_account_config.get("username"),
-                        smtp_password=source_account_config.get("password"),
-                        sender_email=source_account_config.get("email_address"),
-                        bcc_addresses=bcc_list,
-                        additional_message=(
-                            "This task has been assigned to you.\n\nTask ID: "
-                            f"{task_tracking_headers.get(HEADER_TASK_ID, 'unknown')}"
-                            "\nForwarded by IMAP AI Assistant"
-                        ),
-                    )
-                else:
+                if "custom_headers" not in str(e):
                     raise
+                logger.warning(
+                    "forward_email doesn't support custom_headers yet - forwarding without tracking"
+                )
+                forward_success = source_client.client.forward_email(**forward_args)
 
             if forward_success:
                 send_output(f"Forwarded to {assignee}")
@@ -311,6 +323,15 @@ class TaskProcessor:
         except Exception as e:
             logger.error(f"Error forwarding email to assignee: {e}")
             return False
+
+    @staticmethod
+    def _forward_note(task_tracking_headers: dict[str, str]) -> str:
+        """Text put above the forwarded email, identical whether it is sent or drafted."""
+        return (
+            "This task has been assigned to you.\n\nTask ID: "
+            f"{task_tracking_headers.get(HEADER_TASK_ID, 'unknown')}"
+            "\nForwarded by IMAP AI Assistant"
+        )
 
     def _extract_sender_email(self, from_address: str) -> str | None:
         """Extract email address from sender field."""

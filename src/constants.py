@@ -45,6 +45,7 @@ KEY_MESSAGE_ID = "message_id"
 CFG_EMAIL_ADDRESS = "email_address"
 CFG_TARGET_FOLDER = "target_folder"
 CFG_ADDITIONAL_SUBJECT_TAG = "additional_subject_tag"
+CFG_DRAFTS_ONLY = "drafts_only"
 
 # ---------------------------------------------------------------------------
 # Markers and prefixes

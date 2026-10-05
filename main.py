@@ -10,6 +10,7 @@ if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
 
+from src.interaction.scheduler_prompts import set_auto_accept
 from src.processors.email_processor import EmailProcessor
 
 # Configure logging
@@ -94,6 +95,11 @@ def main() -> None:
                         help='Remove a keyword-based subject tag rule by tag')
     parser.add_argument('--dry-run', action='store_true',
                         help='Run without sending emails, moving messages, or marking as read')
+    parser.add_argument('--drafts-only', action=argparse.BooleanOptionalAction, default=None,
+                        help='Workflow saves todo and forward mails as drafts in the main account '
+                             'instead of sending (overrides processing.drafts_only)')
+    parser.add_argument('--auto-accept', action='store_true',
+                        help='Answer every prompt with its default (for unattended runs)')
     parser.add_argument('--unread-only', action='store_true',
                         help='Only process unread emails (use with --list-inbox)')
     parser.add_argument('--list-inbox', action='store_true',
@@ -139,9 +145,10 @@ def main() -> None:
     parser.add_argument('--config', default='settings.json', help='Path to configuration file')
 
     args = parser.parse_args()
+    set_auto_accept(args.auto_accept)
 
     # Initialize the email processor
-    processor = EmailProcessor(args.config, dry_run=args.dry_run)
+    processor = EmailProcessor(args.config, dry_run=args.dry_run, drafts_only=args.drafts_only)
 
     if args.test:
         # Test all connections

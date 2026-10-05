@@ -28,6 +28,7 @@
     "email_address": "yourname+abc123@rmilk.com"
   },
   "processing": {
+    "drafts_only": false,
     "my_own_tasks": {
       "target_folder": "Company/@MyToDo",
       "additional_subject_tag": "#MyToDo #IMAP-Assistant"
