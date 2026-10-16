@@ -44,7 +44,8 @@ SYSTEM_PROMPT_EXTRA = (
     "   - Use body context to add relevant info (person, company) to title\n"
     "   - The subject may be a forwarded todo for someone else — base the title on what the USER needs to do\n"
     "3. Present the suggestion and ask the user to confirm or edit\n"
-    "4. If the user requests changes, apply them, present the updated values, and ask to confirm again. Repeat until the user explicitly confirms.\n"
+    "4. If the user requests changes, apply them, present the updated values, and ask to confirm again. "
+    "Repeat until the user explicitly confirms.\n"
     "5. Once confirmed, call send_todo_from_email with the email's ID and final values\n\n"
     "## Meeting Details Workflow\n"
     "When the user asks about meeting details, links, or info for specific meetings:\n"
@@ -58,10 +59,12 @@ SYSTEM_PROMPT_EXTRA = (
     "## Meeting Invites Workflow\n"
     "When the user asks to 'process invites', 'check invites', 'meeting invites', or similar:\n"
     "1. Call list_invites to see all pending invites\n"
-    "2. Do NOT list all invites. Present only invite #1 (subject, time, organizer) and ask the user what to do with it?\n"
+    "2. Do NOT list all invites. Present only invite #1 (subject, time, organizer) and ask the user "
+    "what to do with it?\n"
     "3. Present details and ask the user what to do:\n"
     "   - For regular invites: accept_invite with the invite's ID (adds to calendar) or archive_invite\n"
-    "   - For cancelled invites: delete_cancelled_invite with the invite's ID (removes from calendar) or archive_invite\n"
+    "   - For cancelled invites: delete_cancelled_invite with the invite's ID (removes from calendar) "
+    "or archive_invite\n"
     "4. After each action, call list_invites again before next operation\n"
     "5. When done, summarize actions taken\n\n"
     "## Email Reply Workflow\n"
@@ -88,31 +91,21 @@ SYSTEM_PROMPT_EXTRA = (
 )
 
 
-def _run_cli(*args: str) -> str:
+def _run_cli(*args: str, stdin_text: str | None = None) -> str:
     """Run an imap-ai-assistant CLI command and return its output."""
+    run_options: dict[str, Any] = {
+        "cwd": _IMAP_ROOT,
+        "capture_output": True,
+        "text": True,
+        "timeout": 120,
+    }
+    if stdin_text is None:
+        run_options["stdin"] = subprocess.DEVNULL
+    else:
+        run_options["input"] = stdin_text
     result = subprocess.run(
         ["uv", "run", "python", "main.py", *args],
-        cwd=_IMAP_ROOT,
-        capture_output=True,
-        text=True,
-        timeout=120,
-        stdin=subprocess.DEVNULL,
-    )
-    text = result.stdout.strip()
-    if result.returncode != 0 and result.stderr.strip():
-        text = f"{text}\n{result.stderr.strip()}" if text else result.stderr.strip()
-    return text or "(no output)"
-
-
-def _run_cli_with_stdin(*args: str, stdin_text: str) -> str:
-    """Run an imap-ai-assistant CLI command with stdin input and return its output."""
-    result = subprocess.run(
-        ["uv", "run", "python", "main.py", *args],
-        cwd=_IMAP_ROOT,
-        capture_output=True,
-        text=True,
-        timeout=120,
-        input=stdin_text,
+        **run_options,
     )
     text = result.stdout.strip()
     if result.returncode != 0 and result.stderr.strip():
@@ -297,9 +290,9 @@ def _save_salutation_args(params: dict[str, Any]) -> list[str]:
 
 def _save_draft_reply_handler(params: dict[str, Any]) -> None:
     """Handler for save_draft_reply: sends body_text via stdin."""
-    result = _run_cli_with_stdin(
+    result = _run_cli(
         "--save-draft-reply", str(params["email_id"]),
-        stdin_text=params["body_text"],
+        stdin_text=str(params["body_text"]),
     )
     output(result)
 
@@ -483,11 +476,19 @@ _COMMANDS: list[tuple[CommandDefinition, Any]] = [
     (
         CommandDefinition(
             name="send_todo_from_email",
-            description="Send a confirmed todo from an inbox email and move it to the todo folder. Use this after previewing and confirming the todo details with the user.",
+            description=(
+                "Send a confirmed todo from an inbox email and move it to the todo folder. Use this after "
+                "previewing and confirming the todo details with the user."
+            ),
             parameters=[
                 CommandParameter("email_id", "The email ID from list_inbox output", "string", required=True),
                 CommandParameter("title", "The confirmed todo title (max 50 chars)", "string", required=True),
-                CommandParameter("priority", "Priority: 1 (very important), 2 (important), 3 (not so important)", "integer", required=True),
+                CommandParameter(
+                    "priority",
+                    "Priority: 1 (very important), 2 (important), 3 (not so important)",
+                    "integer",
+                    required=True,
+                ),
                 CommandParameter("due_date", "Due date: 'today', 'tomorrow', or DD.MM.YYYY", "string", required=True),
             ],
         ),
@@ -557,8 +558,12 @@ _COMMANDS: list[tuple[CommandDefinition, Any]] = [
             description="Save how to address a contact (salutation) for future emails",
             parameters=[
                 CommandParameter("email_address", "The contact's email address", "string", required=True),
-                CommandParameter("salutation", "The salutation text (e.g. 'Herr Mueller', 'Tamara')", "string", required=True),
-                CommandParameter("is_formal", "Whether to use formal address (true) or informal (false)", "boolean", required=True),
+                CommandParameter(
+                    "salutation", "The salutation text (e.g. 'Herr Mueller', 'Tamara')", "string", required=True
+                ),
+                CommandParameter(
+                    "is_formal", "Whether to use formal address (true) or informal (false)", "boolean", required=True
+                ),
             ],
         ),
         _save_salutation_args,
