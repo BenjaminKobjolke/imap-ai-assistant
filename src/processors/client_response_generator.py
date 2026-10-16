@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 from pathlib import Path
+from typing import TypedDict, cast
 
 from src.ai.openai_client import OpenAIClient
 from src.config.settings import ConfigManager
@@ -11,12 +12,7 @@ from src.constants import (
     HEADER_DRAFT_CREATED,
     HEADER_ORIGINAL_SENDER,
     HEADER_TASK_ID,
-    KEY_EMAIL_MESSAGE,
-    KEY_RESPONSE,
-    KEY_SUBJECT,
-    KEY_TASK_BODY,
     KEY_TASK_ID,
-    KEY_TASK_SUBJECT,
     MIME_TEXT_HTML,
     PREFIX_DRAFT_RESPONSE,
     PREFIX_REPLY,
@@ -27,16 +23,37 @@ from src.interaction.scheduler_prompts import scheduler_ask, scheduler_confirm, 
 logger = logging.getLogger(__name__)
 
 
+class OriginalTask(TypedDict, total=False):
+    """Fields from the stored task needed to draft a client response."""
+
+    email_message: object
+    task_subject: str
+    task_body: str
+    task_id: str
+
+
+class ClientResponse(TypedDict, total=False):
+    """Subject and body generated for the client response draft."""
+
+    subject: str
+    response: str
+
+
 class ClientResponseGenerator:
     """Handles generation and creation of client response drafts."""
 
-    def __init__(self, config: ConfigManager, openai_client: OpenAIClient):
+    def __init__(self, config: ConfigManager, openai_client: OpenAIClient) -> None:
         self.config = config
         self.openai_client = openai_client
 
-    def generate_and_create_draft(self, original_task: dict, assignee_response: str,
-                                 original_sender: str, last_sent_context: str | None,
-                                 main_imap_client: EnhancedImapClient) -> bool:
+    def generate_and_create_draft(
+        self,
+        original_task: OriginalTask,
+        assignee_response: str,
+        original_sender: str,
+        last_sent_context: str | None,
+        main_imap_client: EnhancedImapClient,
+    ) -> bool:
         """Generate client response and create draft email."""
         try:
             if not self.openai_client:
@@ -44,27 +61,30 @@ class ClientResponseGenerator:
                 return False
 
             # Extract original email information
-            email_message = original_task.get(KEY_EMAIL_MESSAGE)
+            email_message = original_task.get("email_message")
             if not email_message:
                 logger.error("No original email message found")
                 return False
 
             # Generate response using OpenAI with relationship context
-            response_data = self.openai_client.generate_client_response(
-                original_subject=original_task.get(KEY_TASK_SUBJECT, ""),
-                original_content=original_task.get(KEY_TASK_BODY, ""),
-                assigned_task=original_task.get(KEY_TASK_SUBJECT, ""),
-                assignee_response=assignee_response,
-                last_sent_context=last_sent_context
+            response_data = cast(
+                ClientResponse,
+                self.openai_client.generate_client_response(
+                    original_subject=original_task.get("task_subject", ""),
+                    original_content=original_task.get("task_body", ""),
+                    assigned_task=original_task.get("task_subject", ""),
+                    assignee_response=assignee_response,
+                    last_sent_context=last_sent_context,
+                ),
             )
 
             # Let user review/edit the response body when running interactively
-            response_body = response_data.get(KEY_RESPONSE, "")
+            response_body = response_data.get("response", "")
             edited_body = scheduler_ask(
                 f"AI-generated response:\n{response_body}\n\nEdit response (or keep as-is):",
                 default=response_body,
             )
-            response_data[KEY_RESPONSE] = edited_body
+            response_data["response"] = edited_body
 
             if not scheduler_confirm(
                 f"Create draft email to {original_sender}?", default=True
@@ -84,13 +104,20 @@ class ClientResponseGenerator:
             logger.error(f"Error generating client response: {e}")
             return False
 
-    def _create_draft_email(self, response_data: dict, original_task: dict,
-                           original_sender: str, main_imap_client: EnhancedImapClient) -> bool:
+    def _create_draft_email(
+        self,
+        response_data: ClientResponse,
+        original_task: OriginalTask,
+        original_sender: str,
+        main_imap_client: EnhancedImapClient,
+    ) -> bool:
         """Create draft email with generated response."""
         try:
             # Get response content
-            response_subject = response_data.get(KEY_SUBJECT, f"{PREFIX_REPLY}{original_task.get(KEY_TASK_SUBJECT, 'Your request')}")
-            response_body = response_data.get(KEY_RESPONSE, "Your request has been completed.")
+            response_subject = response_data.get(
+                "subject", f"{PREFIX_REPLY}{original_task.get('task_subject', 'Your request')}"
+            )
+            response_body = response_data.get("response", "Your request has been completed.")
 
             # Create draft response instead of sending immediately
             main_account_config = self.config.get_first_account()
@@ -102,8 +129,8 @@ class ClientResponseGenerator:
             draft_subject = f"{PREFIX_DRAFT_RESPONSE} {response_subject}"
 
             # Create proper reply format with original email quoted
-            original_email_content = original_task.get(KEY_TASK_BODY, '')
-            original_subject = original_task.get(KEY_TASK_SUBJECT, '')
+            original_email_content = original_task.get("task_body", '')
+            original_subject = original_task.get("task_subject", '')
 
             # Load footer HTML
             footer_html = self._load_footer_html()
