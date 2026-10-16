@@ -1,8 +1,37 @@
 {
   "files": {
-    "TICKETS_WATCHER_COMMANDS.md": 1
+    "TICKETS_WATCHER_COMMANDS.md": 2
   },
   "analysis_commands": [
     "tools\\analyze_code.bat"
-  ]
+  ],
+  "command_check_scripts": [
+    "analyze_code.bat",
+    "analyze_code_config.bat",
+    "analyze_code_config.example.bat",
+    "fix_ruff_issues.bat",
+    "fix_ruff_issues_dry_run.bat",
+    "tests.bat"
+  ],
+  "analysis_commands_seen": {
+    "scripts": [
+      "analyze_code.bat",
+      "analyze_code_config.bat",
+      "analyze_code_config.example.bat",
+      "fix_ruff_issues.bat",
+      "fix_ruff_issues_dry_run.bat",
+      "tests.bat"
+    ],
+    "tests": true
+  },
+  "analysis_tests_answered": true,
+  "analysis_format_command": "tools/fix_ruff_issues.bat",
+  "analysis_command_states": {
+    "tools/fix_ruff_issues.bat": {
+      "code_quality": "green"
+    },
+    "tools\\analyze_code.bat": {
+      "code_quality": "failed"
+    }
+  }
 }
