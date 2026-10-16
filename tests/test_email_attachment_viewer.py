@@ -5,13 +5,22 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+from imap_client_lib import Attachment, EmailMessage
+from imap_client_lib import ImapClient as BaseImapClient
+from imapclient import IMAPClient
+
 from src.config.settings import ConfigManager
 from src.email.email_attachment_viewer import EmailAttachmentViewer
 from src.email.imap_client import EnhancedImapClient
 
+_ATTACHMENT_SPEC = Attachment("", "", b"")
+_EMAIL_MESSAGE_SPEC = EmailMessage("", "", "", "", [], None)
 
-def _make_attachment(filename: str = "doc.pdf", content_type: str = "application/pdf", data: bytes = b"pdf-bytes") -> MagicMock:
-    att = MagicMock()
+
+def _make_attachment(
+    filename: str = "doc.pdf", content_type: str = "application/pdf", data: bytes = b"pdf-bytes"
+) -> MagicMock:
+    att = MagicMock(spec_set=_ATTACHMENT_SPEC)
     att.filename = filename
     att.content_type = content_type
     att.data = data
@@ -27,11 +36,12 @@ class TestShowAttachments:
         """Shows 'No attachments' when email has none."""
         client = MagicMock(spec=EnhancedImapClient)
         config = MagicMock(spec=ConfigManager)
-        inner = MagicMock()
+        inner = MagicMock(spec=BaseImapClient)
         client.client = inner
+        inner.client = MagicMock(spec_set=IMAPClient)
         inner.client.fetch.return_value = {42: {b"BODY[]": b"raw"}}
 
-        mock_msg = MagicMock()
+        mock_msg = MagicMock(spec_set=_EMAIL_MESSAGE_SPEC)
         mock_msg.attachments = []
         mock_email_cls.from_bytes.return_value = mock_msg
 
@@ -44,8 +54,9 @@ class TestShowAttachments:
         """Shows error when fetch returns empty."""
         client = MagicMock(spec=EnhancedImapClient)
         config = MagicMock(spec=ConfigManager)
-        inner = MagicMock()
+        inner = MagicMock(spec=BaseImapClient)
         client.client = inner
+        inner.client = MagicMock(spec_set=IMAPClient)
         inner.client.fetch.return_value = {}
 
         EmailAttachmentViewer.show_attachments(client, config, "INBOX", "42")
@@ -55,16 +66,19 @@ class TestShowAttachments:
     @patch("src.email.email_attachment_viewer.SchedulerChoice")
     @patch("src.email.email_attachment_viewer.send_output")
     @patch("src.email.email_attachment_viewer.EmailMessage")
-    def test_lists_attachments(self, mock_email_cls: MagicMock, mock_output: MagicMock, mock_choice_cls: MagicMock) -> None:
+    def test_lists_attachments(
+        self, mock_email_cls: MagicMock, mock_output: MagicMock, mock_choice_cls: MagicMock
+    ) -> None:
         """Lists attachments and shows choice menu."""
         client = MagicMock(spec=EnhancedImapClient)
         config = MagicMock(spec=ConfigManager)
-        inner = MagicMock()
+        inner = MagicMock(spec=BaseImapClient)
         client.client = inner
+        inner.client = MagicMock(spec_set=IMAPClient)
         inner.client.fetch.return_value = {42: {b"BODY[]": b"raw"}}
 
         att = _make_attachment("report.pdf", "application/pdf")
-        mock_msg = MagicMock()
+        mock_msg = MagicMock(spec_set=_EMAIL_MESSAGE_SPEC)
         mock_msg.attachments = [att]
         mock_email_cls.from_bytes.return_value = mock_msg
 

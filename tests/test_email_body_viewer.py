@@ -4,10 +4,15 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from src.constants import MIME_TEXT_HTML, MIME_TEXT_PLAIN
+from imap_client_lib import EmailMessage
+from imap_client_lib import ImapClient as BaseImapClient
+from imapclient import IMAPClient
+
+from src.constants import MIME_TEXT_PLAIN
 from src.email.email_body_viewer import EmailBodyViewer
 from src.email.imap_client import EnhancedImapClient
 
+_EMAIL_MESSAGE_SPEC = EmailMessage("", "", "", "", [], None)
 
 # ---------------------------------------------------------------------------
 # show_body
@@ -21,12 +26,13 @@ class TestShowBody:
     def test_show_body_plain_text(self, mock_email_cls: MagicMock, mock_output: MagicMock) -> None:
         """Plain text body is displayed between separator lines."""
         client = MagicMock(spec=EnhancedImapClient)
-        inner = MagicMock()
+        inner = MagicMock(spec=BaseImapClient)
         client.client = inner
+        inner.client = MagicMock(spec_set=IMAPClient)
         raw_data = b"raw email bytes"
         inner.client.fetch.return_value = {42: {b"BODY[]": raw_data}}
 
-        mock_msg = MagicMock()
+        mock_msg = MagicMock(spec_set=_EMAIL_MESSAGE_SPEC)
         mock_msg.get_body.side_effect = lambda ct: "Hello world" if ct == MIME_TEXT_PLAIN else None
         mock_email_cls.from_bytes.return_value = mock_msg
 
@@ -40,12 +46,13 @@ class TestShowBody:
     def test_show_body_html_fallback(self, mock_email_cls: MagicMock, mock_output: MagicMock) -> None:
         """When no plain text, HTML is stripped of tags and shown."""
         client = MagicMock(spec=EnhancedImapClient)
-        inner = MagicMock()
+        inner = MagicMock(spec=BaseImapClient)
         client.client = inner
+        inner.client = MagicMock(spec_set=IMAPClient)
         raw_data = b"raw email bytes"
         inner.client.fetch.return_value = {42: {b"BODY[]": raw_data}}
 
-        mock_msg = MagicMock()
+        mock_msg = MagicMock(spec_set=_EMAIL_MESSAGE_SPEC)
         mock_msg.get_body.side_effect = lambda ct: (
             None if ct == MIME_TEXT_PLAIN else "<b>Bold</b> text"
         )
@@ -59,8 +66,9 @@ class TestShowBody:
     def test_show_body_fetch_empty(self, mock_output: MagicMock) -> None:
         """When fetch returns empty, a message is shown."""
         client = MagicMock(spec=EnhancedImapClient)
-        inner = MagicMock()
+        inner = MagicMock(spec=BaseImapClient)
         client.client = inner
+        inner.client = MagicMock(spec_set=IMAPClient)
         inner.client.fetch.return_value = {}
 
         EmailBodyViewer.show_body(client, "INBOX", "42")
@@ -72,12 +80,13 @@ class TestShowBody:
     def test_show_body_empty_body(self, mock_email_cls: MagicMock, mock_output: MagicMock) -> None:
         """When email has no body at all, shows empty message."""
         client = MagicMock(spec=EnhancedImapClient)
-        inner = MagicMock()
+        inner = MagicMock(spec=BaseImapClient)
         client.client = inner
+        inner.client = MagicMock(spec_set=IMAPClient)
         raw_data = b"raw email bytes"
         inner.client.fetch.return_value = {42: {b"BODY[]": raw_data}}
 
-        mock_msg = MagicMock()
+        mock_msg = MagicMock(spec_set=_EMAIL_MESSAGE_SPEC)
         mock_msg.get_body.return_value = None
         mock_email_cls.from_bytes.return_value = mock_msg
 
@@ -95,7 +104,7 @@ class TestGetBodyExcerpt:
 
     def test_plain_text_body(self) -> None:
         """Plain text body is returned truncated to max_chars."""
-        msg = MagicMock()
+        msg = MagicMock(spec_set=_EMAIL_MESSAGE_SPEC)
         msg.get_body.side_effect = lambda ct: "A" * 1000 if ct == MIME_TEXT_PLAIN else None
 
         result = EmailBodyViewer.get_body_excerpt(msg, max_chars=100)
@@ -105,7 +114,7 @@ class TestGetBodyExcerpt:
 
     def test_html_fallback(self) -> None:
         """When no plain text, HTML is stripped and returned."""
-        msg = MagicMock()
+        msg = MagicMock(spec_set=_EMAIL_MESSAGE_SPEC)
         msg.get_body.side_effect = lambda ct: (
             None if ct == MIME_TEXT_PLAIN else "<p>Hello</p>"
         )
@@ -116,7 +125,7 @@ class TestGetBodyExcerpt:
 
     def test_no_body_returns_placeholder(self) -> None:
         """When no body at all, returns placeholder string."""
-        msg = MagicMock()
+        msg = MagicMock(spec_set=_EMAIL_MESSAGE_SPEC)
         msg.get_body.return_value = None
 
         result = EmailBodyViewer.get_body_excerpt(msg)
@@ -133,7 +142,7 @@ class TestGetBodyExcerpt:
 
     def test_default_max_chars(self) -> None:
         """Default max_chars is 800."""
-        msg = MagicMock()
+        msg = MagicMock(spec_set=_EMAIL_MESSAGE_SPEC)
         msg.get_body.side_effect = lambda ct: "X" * 2000 if ct == MIME_TEXT_PLAIN else None
 
         result = EmailBodyViewer.get_body_excerpt(msg)

@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 from src.search.folder_picker import folder_search_loop, pick_from_matches
-
 
 # ===================================================================
 # pick_from_matches
