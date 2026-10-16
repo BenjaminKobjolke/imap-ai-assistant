@@ -638,7 +638,9 @@ class OpenAIClient:
                         "completion_tokens": response.usage.completion_tokens if response.usage else 0,
                         "total_tokens": response.usage.total_tokens if response.usage else 0,
                     }
-                    self.app_logger.log_ai_response(request_id, "detect_salutation", content, processing_time, tokens_used)
+                    self.app_logger.log_ai_response(
+                        request_id, "detect_salutation", content, processing_time, tokens_used
+                    )
 
                 try:
                     result: dict[str, Any] = json.loads(content)

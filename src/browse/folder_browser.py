@@ -142,7 +142,10 @@ class FolderBrowser:
                 page = max(0, page - 1)
                 continue
 
-            send_output(f"\n📧 {_display_name(folder)} - emails ({start + 1}-{start + len(page_items)} of {len(messages)}):")
+            send_output(
+                f"\n📧 {_display_name(folder)} - emails "
+                f"({start + 1}-{start + len(page_items)} of {len(messages)}):"
+            )
             choices: list[tuple[str, str]] = []
             for idx, (_msg_id, email_msg) in enumerate(page_items):
                 from_addr = getattr(email_msg, "from_address", "") or ""

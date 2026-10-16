@@ -235,7 +235,7 @@ class CalendarService:
     # -- Shared parse helpers ---------------------------------------------------
 
     def _parse_add_date_args(self, raw_args: list[str]) -> tuple | None:
-        """Parse --add-date arguments into (title, date, start_hour, start_minute, end_hour, end_minute, calendar_query, all_day)."""
+        """Parse --add-date arguments into (title, date, start/end time, calendar query, all-day flag)."""
         from datetime import date as date_type
 
         if not raw_args:
@@ -311,8 +311,8 @@ class CalendarService:
     def _create_event_core(self, raw_args: list[str]) -> tuple | None:
         """Parse args, authenticate, resolve calendar, create event.
 
-        Returns (gcal_client, event_id, title, event_date, start_hour, start_minute, end_hour, end_minute, cal_name, all_day)
-        or None on failure.
+        Returns (gcal_client, event_id, title, event_date, start_hour, start_minute,
+        end_hour, end_minute, cal_name, all_day) or None on failure.
         """
         parsed = self._parse_add_date_args(raw_args)
         if parsed is None:
@@ -353,7 +353,18 @@ class CalendarService:
             send_output("Failed to create event.")
             return None
 
-        return gcal_client, event_id, title, event_date, start_hour, start_minute, end_hour, end_minute, cal_name, all_day
+        return (
+            gcal_client,
+            event_id,
+            title,
+            event_date,
+            start_hour,
+            start_minute,
+            end_hour,
+            end_minute,
+            cal_name,
+            all_day,
+        )
 
 
 class CalendarServiceInteractive(CalendarService):
@@ -365,13 +376,27 @@ class CalendarServiceInteractive(CalendarService):
         if result is None:
             return
 
-        gcal_client, event_id, title, event_date, start_hour, start_minute, end_hour, end_minute, cal_name, all_day = result
+        (
+            gcal_client,
+            event_id,
+            title,
+            event_date,
+            start_hour,
+            start_minute,
+            end_hour,
+            end_minute,
+            cal_name,
+            all_day,
+        ) = result
 
         date_str = event_date.strftime("%d.%m.%Y")
         if all_day:
             send_output(f"Created: {title} on {date_str} (all day) ({cal_name})")
         else:
-            send_output(f"Created: {title} on {date_str} {start_hour:02d}:{start_minute:02d}-{end_hour:02d}:{end_minute:02d} ({cal_name})")
+            send_output(
+                f"Created: {title} on {date_str} "
+                f"{start_hour:02d}:{start_minute:02d}-{end_hour:02d}:{end_minute:02d} ({cal_name})"
+            )
         undo = SchedulerChoice(
             "", [("Keep", "keep"), ("Undo (delete event)", "undo")],
         ).choose()

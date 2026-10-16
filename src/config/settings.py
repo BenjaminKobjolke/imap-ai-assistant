@@ -96,7 +96,9 @@ class ConfigManager:
     @property
     def subject_tag(self) -> str:
         """Get additional subject tag (default for my own tasks)."""
-        return self._config.get("processing", {}).get("my_own_tasks", {}).get(CFG_ADDITIONAL_SUBJECT_TAG, DEFAULT_TODO_TAG)
+        return self._config.get("processing", {}).get("my_own_tasks", {}).get(
+            CFG_ADDITIONAL_SUBJECT_TAG, DEFAULT_TODO_TAG
+        )
 
     def get_processing_rules(self, assignee: str = "self") -> dict[str, str]:
         """Get processing rules for a specific assignee."""

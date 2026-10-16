@@ -9,7 +9,9 @@ from src.processors.greeting_builder import GreetingBuilder, SalutationInfo
 
 def _info(salutation: str = "Herr Mueller", *, is_formal: bool = True, skip: bool = False) -> SalutationInfo:
     """Create a test SalutationInfo."""
-    return SalutationInfo(email_address="test@example.com", salutation=salutation, is_formal=is_formal, skip_greeting=skip)
+    return SalutationInfo(
+        email_address="test@example.com", salutation=salutation, is_formal=is_formal, skip_greeting=skip
+    )
 
 
 def test_morning_greeting_formal() -> None:

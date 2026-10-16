@@ -318,7 +318,9 @@ class MeetingCleanup:
                     continue
 
                 # Recurring events: keep if they have future occurrences
-                if parsed.get('rrule') and MeetingCleanup._has_future_occurrence(parsed, datetime.now(parsed['dtstart'].tzinfo)):
+                if parsed.get('rrule') and MeetingCleanup._has_future_occurrence(
+                    parsed, datetime.now(parsed['dtstart'].tzinfo)
+                ):
                     logger.debug(f"Kept (recurring, has future occurrences): '{subject}'")
                     kept += 1
                     continue
