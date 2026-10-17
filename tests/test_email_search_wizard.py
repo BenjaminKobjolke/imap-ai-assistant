@@ -15,8 +15,8 @@ from src.constants import (
 )
 from src.email.imap_client import EnhancedImapClient
 from src.search.email_search import EmailSearch
+from src.search.live_imap_search import LiveImapSearch
 from src.search.search_cache import SearchCache
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -53,7 +53,7 @@ def _mock_cache() -> MagicMock:
 class TestExecuteWizardSearch:
     """Tests for EmailSearch._execute_wizard_search mode routing."""
 
-    @patch.object(EmailSearch, "_search_live_folders", return_value=[])
+    @patch.object(LiveImapSearch, "search_live_folders", return_value=[])
     def test_default_mode_searches_cache_and_live(
         self, mock_live: MagicMock,
     ) -> None:
@@ -75,7 +75,7 @@ class TestExecuteWizardSearch:
         mock_live.assert_called_once()
         assert len(results) == 1
 
-    @patch.object(EmailSearch, "_search_all_imap_folders", return_value=[])
+    @patch.object(LiveImapSearch, "search_all_imap_folders", return_value=[])
     def test_all_mode_searches_all_folders(
         self, mock_all: MagicMock,
     ) -> None:
@@ -94,7 +94,7 @@ class TestExecuteWizardSearch:
 
         mock_all.assert_called_once()
 
-    @patch.object(EmailSearch, "_search_specific_folder", return_value=[])
+    @patch.object(LiveImapSearch, "search_specific_folder", return_value=[])
     def test_inbox_mode_searches_inbox(
         self, mock_specific: MagicMock,
     ) -> None:
@@ -116,7 +116,7 @@ class TestExecuteWizardSearch:
         args = mock_specific.call_args[0]
         assert args[3] == FOLDER_INBOX
 
-    @patch.object(EmailSearch, "_search_specific_folder", return_value=[])
+    @patch.object(LiveImapSearch, "search_specific_folder", return_value=[])
     def test_sent_mode_uses_config_sent_folder(
         self, mock_specific: MagicMock,
     ) -> None:
@@ -138,7 +138,7 @@ class TestExecuteWizardSearch:
         args = mock_specific.call_args[0]
         assert args[3] == "MyAccount/Sent Items"
 
-    @patch.object(EmailSearch, "_search_specific_folder", return_value=[])
+    @patch.object(LiveImapSearch, "search_specific_folder", return_value=[])
     def test_folder_mode_uses_specific_folder(
         self, mock_specific: MagicMock,
     ) -> None:
@@ -189,7 +189,7 @@ class TestPickSearchFolder:
 
         assert result is None
 
-    @patch("src.search.email_search.send_output")
+    @patch("src.search.live_imap_search.send_output")
     def test_returns_none_on_list_error(self, mock_output: MagicMock) -> None:
         """When listing folders fails, None is returned with error message."""
         client = _mock_client()
@@ -199,7 +199,7 @@ class TestPickSearchFolder:
 
         assert result is None
 
-    @patch("src.search.email_search.send_output")
+    @patch("src.search.live_imap_search.send_output")
     def test_returns_none_when_no_folders(self, mock_output: MagicMock) -> None:
         """When no folders exist, None is returned."""
         client = _mock_client()
@@ -218,8 +218,8 @@ class TestPickSearchFolder:
 class TestSearchAllImapFolders:
     """Tests for EmailSearch._search_all_imap_folders."""
 
-    @patch("src.search.email_search.send_output")
-    @patch.object(EmailSearch, "_search_single_live_folder")
+    @patch("src.search.live_imap_search.send_output")
+    @patch.object(LiveImapSearch, "search_single_live_folder")
     def test_searches_every_folder_with_progress(
         self, mock_search: MagicMock, mock_output: MagicMock,
     ) -> None:
@@ -228,7 +228,7 @@ class TestSearchAllImapFolders:
         client.client.list_folders.return_value = ["INBOX", "Sent", "Archive"]
         mock_search.return_value = []
 
-        EmailSearch._search_all_imap_folders(
+        LiveImapSearch.search_all_imap_folders(
             client, "test", "all", None, None, None, None,
         )
 
@@ -236,13 +236,13 @@ class TestSearchAllImapFolders:
         # Progress output for each folder
         assert mock_output.call_count == 3
 
-    @patch("src.search.email_search.send_output")
+    @patch("src.search.live_imap_search.send_output")
     def test_returns_empty_on_list_error(self, mock_output: MagicMock) -> None:
         """When listing folders fails, an empty list is returned."""
         client = _mock_client()
         client.client.list_folders.side_effect = Exception("offline")
 
-        results = EmailSearch._search_all_imap_folders(
+        results = LiveImapSearch.search_all_imap_folders(
             client, "test", "all", None, None, None, None,
         )
 
