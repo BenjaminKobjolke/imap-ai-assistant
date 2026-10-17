@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from src.config.subject_tag_rules import SubjectTagRules
 from src.config.settings import ConfigManager
 
 
@@ -8,27 +9,28 @@ class TagRulesWizard:
 
     def __init__(self, config: ConfigManager) -> None:
         self.config = config
+        self._rules = SubjectTagRules(config)
 
     def list_tag_rules(self) -> None:
         """List all subject tag rules."""
-        self.config.list_tag_rules()
+        self._rules.list_tag_rules()
 
     def add_sender_tag(self, pattern: str, tag: str) -> None:
         """Add a sender-based subject tag rule."""
-        self.config.add_sender_tag_rule(pattern, tag)
+        self._rules.add_sender_tag_rule(pattern, tag)
 
     def remove_sender_tag(self, pattern: str) -> None:
         """Remove a sender-based subject tag rule."""
-        if not self.config.remove_sender_tag_rule(pattern):
+        if not self._rules.remove_sender_tag_rule(pattern):
             print(f"No sender tag rule found for pattern: {pattern}")
 
     def add_keyword_tag(self, tag: str, keywords: list[str], match: str = "all") -> None:
         """Add a keyword-based subject tag rule."""
-        self.config.add_keyword_tag_rule(keywords, tag, match)
+        self._rules.add_keyword_tag_rule(keywords, tag, match)
 
     def remove_keyword_tag(self, tag: str) -> None:
         """Remove a keyword-based subject tag rule."""
-        if not self.config.remove_keyword_tag_rule(tag):
+        if not self._rules.remove_keyword_tag_rule(tag):
             print(f"No keyword tag rule found for tag: {tag}")
 
     def setup_tag_rules(self) -> None:
@@ -95,7 +97,7 @@ class TagRulesWizard:
             if not tag:
                 print("  Cancelled.")
                 return
-            self.config.add_sender_tag_rule(pattern, tag)
+            self._rules.add_sender_tag_rule(pattern, tag)
             print(f"  Added: {pattern} -> {tag}")
 
         elif rule_type == "k":
@@ -114,7 +116,7 @@ class TagRulesWizard:
             print("  Match mode: [a]ll  [n]any")
             match_choice = input("  > ").strip().lower()
             match_mode = "any" if match_choice == "n" else "all"
-            self.config.add_keyword_tag_rule(keywords, tag, match_mode)
+            self._rules.add_keyword_tag_rule(keywords, tag, match_mode)
             print(f"  Added: [{match_mode}] ({', '.join(keywords)}) -> {tag}")
 
         else:
@@ -144,8 +146,8 @@ class TagRulesWizard:
             final_tag = new_tag if new_tag else rule["tag"]
 
             if final_pattern != old_pattern:
-                self.config.remove_sender_tag_rule(old_pattern)
-            self.config.add_sender_tag_rule(final_pattern, final_tag)
+                self._rules.remove_sender_tag_rule(old_pattern)
+            self._rules.add_sender_tag_rule(final_pattern, final_tag)
             print(f"  Updated: {final_pattern} -> {final_tag}")
 
         else:
@@ -173,8 +175,8 @@ class TagRulesWizard:
                 final_match = match_mode
 
             if final_tag != old_tag:
-                self.config.remove_keyword_tag_rule(old_tag)
-            self.config.add_keyword_tag_rule(final_keywords, final_tag, final_match)
+                self._rules.remove_keyword_tag_rule(old_tag)
+            self._rules.add_keyword_tag_rule(final_keywords, final_tag, final_match)
             print(f"  Updated: [{final_match}] ({', '.join(final_keywords)}) -> {final_tag}")
 
     def _delete(self, choice: str, combined: list[tuple[str, dict]]) -> None:
@@ -201,9 +203,9 @@ class TagRulesWizard:
         confirm = input(f"  Delete '{label}'? [y/N] ").strip().lower()
         if confirm == "y":
             if rule_type == "sender":
-                self.config.remove_sender_tag_rule(rule["pattern"])
+                self._rules.remove_sender_tag_rule(rule["pattern"])
             else:
-                self.config.remove_keyword_tag_rule(rule["tag"])
+                self._rules.remove_keyword_tag_rule(rule["tag"])
             print("  Deleted.")
         else:
             print("  Cancelled.")
