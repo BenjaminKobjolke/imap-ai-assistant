@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -14,82 +15,8 @@ from src.plugins.loader import PluginInfo
 _IMAP_ROOT = str(Path(__file__).resolve().parent)
 
 SYSTEM_PROMPT_EXTRA = (
-    "You have access to email and calendar management commands. "
-    "These commands let you search emails, create calendar events, "
-    "manage todos, list meetings, and run workflows.\n\n"
-    "- Each list output includes [id:...] tags. Use these IDs when calling detail/action "
-    "commands. NEVER show IDs to the user — they are for internal use only.\n\n"
-    "## Inbox Zero Workflow\n"
-    "When the user asks to do 'inbox zero', 'process inbox', 'check email', or similar:\n"
-    "1. Call list_inbox to see all inbox emails\n"
-    "2. Do NOT list all emails. Present only email #1 (sender, subject, date) and ask the user what to do with it?\n"
-    "3. For each email, ask the user what to do:\n"
-    "   - 'show'/'read': call show_email with the email's ID\n"
-    "   - 'move to FOLDER': call move_email with the email's ID\n"
-    "   - 'trash'/'delete': call trash_email with the email's ID\n"
-    "   - 'todo': see Todo from Email workflow below\n"
-    "   - 'skip'/'next': move on\n"
-    "4. If user doesn't know folder names, call list_folders\n"
-    "   - 'reply'/'answer': see Email Reply Workflow below\n"
-    "5. After move/trash/todo, call list_inbox again before next operation\n"
-    "6. When done, summarize actions taken\n\n"
-    "## Todo from Email Workflow\n"
-    "When the user says 'todo' for an email:\n"
-    "1. Call show_email with the email's ID to read the full content\n"
-    "2. Generate a todo suggestion based on the email:\n"
-    "   - title: concise, descriptive, max 50 chars, no slashes/brackets, no dates in title\n"
-    "   - priority: 1 (very important), 2 (important, default), 3 (not so important)\n"
-    "   - due_date: 'today', 'tomorrow' (default), or DD.MM.YYYY\n"
-    "   - Language: match the email language (default German)\n"
-    "   - Use body context to add relevant info (person, company) to title\n"
-    "   - The subject may be a forwarded todo for someone else — base the title on what the USER needs to do\n"
-    "3. Present the suggestion and ask the user to confirm or edit\n"
-    "4. If the user requests changes, apply them, present the updated values, and ask to confirm again. "
-    "Repeat until the user explicitly confirms.\n"
-    "5. Once confirmed, call send_todo_from_email with the email's ID and final values\n\n"
-    "## Meeting Details Workflow\n"
-    "When the user asks about meeting details, links, or info for specific meetings:\n"
-    "1. Look at previous command outputs in this conversation for [id:...] tags\n"
-    "2. If the user clearly refers to a specific meeting (by name or context) and "
-    "you can find its ID in a previous output, call meeting_detail with that ID\n"
-    "3. If there are multiple meetings and it's unclear which one, ask the user to clarify\n"
-    "4. If no meetings have been listed yet, first call meetings with the date, "
-    "then call meeting_detail with the ID from the output\n"
-    "5. Never pass null or empty meeting_id — always get the actual ID first\n\n"
-    "## Meeting Invites Workflow\n"
-    "When the user asks to 'process invites', 'check invites', 'meeting invites', or similar:\n"
-    "1. Call list_invites to see all pending invites\n"
-    "2. Do NOT list all invites. Present only invite #1 (subject, time, organizer) and ask the user "
-    "what to do with it?\n"
-    "3. Present details and ask the user what to do:\n"
-    "   - For regular invites: accept_invite with the invite's ID (adds to calendar) or archive_invite\n"
-    "   - For cancelled invites: delete_cancelled_invite with the invite's ID (removes from calendar) "
-    "or archive_invite\n"
-    "4. After each action, call list_invites again before next operation\n"
-    "5. When done, summarize actions taken\n\n"
-    "## Email Reply Workflow\n"
-    "When the user asks to reply to, answer, or create a response to an email:\n"
-    "1. If no specific email is identified yet, call list_inbox first\n"
-    "2. Call prepare_reply with the email's ID to get content and sender salutation\n"
-    "3. Generate a draft reply:\n"
-    "   - Use the salutation for the greeting (formal: 'Sehr geehrte/r {salutation},' "
-    "informal: 'Hallo {salutation},')\n"
-    "   - If salutation is 'unknown':\n"
-    "     a. Check the '--- Sent Emails ---' section for clues about how the user\n"
-    "        previously addressed this person (greeting patterns like 'Hallo X,' or\n"
-    "        'Sehr geehrte/r X,')\n"
-    "     b. If found, suggest the salutation and formality to the user for confirmation\n"
-    "     c. If not found, ask the user how to address the recipient and whether formal/informal\n"
-    "     d. Once confirmed, call save_salutation with the email address (from the From: line),\n"
-    "        the salutation text, and is_formal — so it is remembered for future emails\n"
-    "   - Write the reply body matching the language and tone of the original\n"
-    "   - Do NOT add a closing greeting or signature — they are added automatically from the email template\n"
-    "4. Present the full draft as a preview\n"
-    "5. Ask: 'Shall I save this as a draft, or would you like to make changes?'\n"
-    "6. If the user wants changes, modify and present again\n"
-    "7. When confirmed, call save_draft_reply with email_id and the complete reply text"
-)
-
+    Path(__file__).resolve().parent / "prompts" / "imap_plugin_system_prompt.txt"
+).read_text(encoding="utf-8")
 
 def _run_cli(*args: str, stdin_text: str | None = None) -> str:
     """Run an imap-ai-assistant CLI command and return its output."""
@@ -169,29 +96,9 @@ def _add_todo_args(params: dict[str, Any]) -> list[str]:
     return args
 
 
-def _todays_meetings_args(params: dict[str, Any]) -> list[str]:
-    """Build CLI args for todays_meetings."""
-    return ["--todays-meetings"]
-
-
-def _meetings_args(params: dict[str, Any]) -> list[str]:
-    """Build CLI args for meetings."""
-    return ["--meetings", str(params["date_str"])]
-
-
-def _meeting_detail_args(params: dict[str, Any]) -> list[str]:
-    """Build CLI args for meeting_detail."""
-    return ["--meeting-detail", str(params["date_str"]), str(params["meeting_id"])]
-
-
-def _list_workflows_args(params: dict[str, Any]) -> list[str]:
-    """Build CLI args for list_workflows."""
-    return ["--workflow"]
-
-
-def _run_workflow_args(params: dict[str, Any]) -> list[str]:
-    """Build CLI args for run_workflow."""
-    return ["--workflow", params["name"]]
+def _fixed_args(flag: str, *keys: str) -> Callable[[dict[str, Any]], list[str]]:
+    """Build the repeated flag-and-parameter argument shape used by plugin commands."""
+    return lambda params: [flag, *(str(params[key]) for key in keys)]
 
 
 def _update_search_cache_args(params: dict[str, Any]) -> list[str]:
@@ -210,72 +117,6 @@ def _list_inbox_args(params: dict[str, Any]) -> list[str]:
     if params.get("unread_only"):
         args.append("--unread-only")
     return args
-
-
-def _show_email_args(params: dict[str, Any]) -> list[str]:
-    """Build CLI args for show_email."""
-    return ["--show-email", str(params["email_id"])]
-
-
-def _move_email_args(params: dict[str, Any]) -> list[str]:
-    """Build CLI args for move_email."""
-    return ["--move-email", str(params["email_id"]), str(params["folder"])]
-
-
-def _trash_email_args(params: dict[str, Any]) -> list[str]:
-    """Build CLI args for trash_email."""
-    return ["--trash-email", str(params["email_id"])]
-
-
-def _list_folders_args(params: dict[str, Any]) -> list[str]:
-    """Build CLI args for list_folders."""
-    return ["--list-folders"]
-
-
-def _todo_from_email_args(params: dict[str, Any]) -> list[str]:
-    """Build CLI args for todo_from_email."""
-    return ["--todo-from-email", str(params["email_id"])]
-
-
-def _send_todo_from_email_args(params: dict[str, Any]) -> list[str]:
-    """Build CLI args for send_todo_from_email."""
-    return [
-        "--send-todo-from-email",
-        str(params["email_id"]),
-        params["title"],
-        str(params["priority"]),
-        params["due_date"],
-    ]
-
-
-def _list_invites_args(params: dict[str, Any]) -> list[str]:
-    """Build CLI args for list_invites."""
-    return ["--list-invites"]
-
-
-def _show_invite_args(params: dict[str, Any]) -> list[str]:
-    """Build CLI args for show_invite."""
-    return ["--show-invite", str(params["invite_id"])]
-
-
-def _accept_invite_args(params: dict[str, Any]) -> list[str]:
-    """Build CLI args for accept_invite."""
-    return ["--accept-invite", str(params["invite_id"])]
-
-
-def _archive_invite_args(params: dict[str, Any]) -> list[str]:
-    """Build CLI args for archive_invite."""
-    return ["--archive-invite", str(params["invite_id"])]
-
-
-def _delete_cancelled_invite_args(params: dict[str, Any]) -> list[str]:
-    """Build CLI args for delete_cancelled_invite."""
-    return ["--delete-cancelled-invite", str(params["invite_id"])]
-
-
-def _prepare_reply_args(params: dict[str, Any]) -> list[str]:
-    """Build CLI args for prepare_reply."""
-    return ["--prepare-reply", str(params["email_id"])]
 
 
 def _save_salutation_args(params: dict[str, Any]) -> list[str]:
@@ -352,7 +193,7 @@ _COMMANDS: list[tuple[CommandDefinition, Any]] = [
             description="List today's meetings with start and end times",
             parameters=[],
         ),
-        _todays_meetings_args,
+        _fixed_args("--todays-meetings"),
     ),
     (
         CommandDefinition(
@@ -368,7 +209,7 @@ _COMMANDS: list[tuple[CommandDefinition, Any]] = [
                 ),
             ],
         ),
-        _meetings_args,
+        _fixed_args("--meetings", "date_str"),
     ),
     (
         CommandDefinition(
@@ -379,7 +220,7 @@ _COMMANDS: list[tuple[CommandDefinition, Any]] = [
                 CommandParameter("meeting_id", "The meeting ID from meetings list output", "string", required=True),
             ],
         ),
-        _meeting_detail_args,
+        _fixed_args("--meeting-detail", "date_str", "meeting_id"),
     ),
     (
         CommandDefinition(
@@ -387,7 +228,7 @@ _COMMANDS: list[tuple[CommandDefinition, Any]] = [
             description="List all available workflows",
             parameters=[],
         ),
-        _list_workflows_args,
+        _fixed_args("--workflow"),
     ),
     (
         CommandDefinition(
@@ -397,7 +238,7 @@ _COMMANDS: list[tuple[CommandDefinition, Any]] = [
                 CommandParameter("name", "Name of the workflow to run", "string", required=True),
             ],
         ),
-        _run_workflow_args,
+        _fixed_args("--workflow", "name"),
     ),
     (
         CommandDefinition(
@@ -432,7 +273,7 @@ _COMMANDS: list[tuple[CommandDefinition, Any]] = [
                 CommandParameter("email_id", "The email ID from list_inbox output", "string", required=True),
             ],
         ),
-        _show_email_args,
+        _fixed_args("--show-email", "email_id"),
     ),
     (
         CommandDefinition(
@@ -443,7 +284,7 @@ _COMMANDS: list[tuple[CommandDefinition, Any]] = [
                 CommandParameter("folder", "Target IMAP folder path to move the email to", "string", required=True),
             ],
         ),
-        _move_email_args,
+        _fixed_args("--move-email", "email_id", "folder"),
     ),
     (
         CommandDefinition(
@@ -453,7 +294,7 @@ _COMMANDS: list[tuple[CommandDefinition, Any]] = [
                 CommandParameter("email_id", "The email ID from list_inbox output", "string", required=True),
             ],
         ),
-        _trash_email_args,
+        _fixed_args("--trash-email", "email_id"),
     ),
     (
         CommandDefinition(
@@ -461,7 +302,7 @@ _COMMANDS: list[tuple[CommandDefinition, Any]] = [
             description="List all available IMAP folders (useful for finding folder names for move_email)",
             parameters=[],
         ),
-        _list_folders_args,
+        _fixed_args("--list-folders"),
     ),
     (
         CommandDefinition(
@@ -471,7 +312,7 @@ _COMMANDS: list[tuple[CommandDefinition, Any]] = [
                 CommandParameter("email_id", "The email ID from list_inbox output", "string", required=True),
             ],
         ),
-        _todo_from_email_args,
+        _fixed_args("--todo-from-email", "email_id"),
     ),
     (
         CommandDefinition(
@@ -492,7 +333,7 @@ _COMMANDS: list[tuple[CommandDefinition, Any]] = [
                 CommandParameter("due_date", "Due date: 'today', 'tomorrow', or DD.MM.YYYY", "string", required=True),
             ],
         ),
-        _send_todo_from_email_args,
+        _fixed_args("--send-todo-from-email", "email_id", "title", "priority", "due_date"),
     ),
     (
         CommandDefinition(
@@ -500,7 +341,7 @@ _COMMANDS: list[tuple[CommandDefinition, Any]] = [
             description="List all pending meeting invites with index, subject, time, organizer, and calendar status",
             parameters=[],
         ),
-        _list_invites_args,
+        _fixed_args("--list-invites"),
     ),
     (
         CommandDefinition(
@@ -510,7 +351,7 @@ _COMMANDS: list[tuple[CommandDefinition, Any]] = [
                 CommandParameter("invite_id", "The invite ID from list_invites output", "string", required=True),
             ],
         ),
-        _show_invite_args,
+        _fixed_args("--show-invite", "invite_id"),
     ),
     (
         CommandDefinition(
@@ -520,7 +361,7 @@ _COMMANDS: list[tuple[CommandDefinition, Any]] = [
                 CommandParameter("invite_id", "The invite ID from list_invites output", "string", required=True),
             ],
         ),
-        _accept_invite_args,
+        _fixed_args("--accept-invite", "invite_id"),
     ),
     (
         CommandDefinition(
@@ -530,7 +371,7 @@ _COMMANDS: list[tuple[CommandDefinition, Any]] = [
                 CommandParameter("invite_id", "The invite ID from list_invites output", "string", required=True),
             ],
         ),
-        _archive_invite_args,
+        _fixed_args("--archive-invite", "invite_id"),
     ),
     (
         CommandDefinition(
@@ -540,7 +381,7 @@ _COMMANDS: list[tuple[CommandDefinition, Any]] = [
                 CommandParameter("invite_id", "The invite ID from list_invites output", "string", required=True),
             ],
         ),
-        _delete_cancelled_invite_args,
+        _fixed_args("--delete-cancelled-invite", "invite_id"),
     ),
     (
         CommandDefinition(
@@ -550,7 +391,7 @@ _COMMANDS: list[tuple[CommandDefinition, Any]] = [
                 CommandParameter("email_id", "The email ID from list_inbox output", "string", required=True),
             ],
         ),
-        _prepare_reply_args,
+        _fixed_args("--prepare-reply", "email_id"),
     ),
     (
         CommandDefinition(
