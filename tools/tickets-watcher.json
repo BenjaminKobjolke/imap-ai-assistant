@@ -31,7 +31,7 @@
       "code_quality": "green"
     },
     "tools\\analyze_code.bat": {
-      "code_quality": "failed"
+      "code_quality": "green"
     }
   }
 }
