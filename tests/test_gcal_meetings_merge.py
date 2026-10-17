@@ -4,6 +4,7 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
+from src.processors.ics_parser import IcsParser
 from src.processors.meeting_cleanup import (
     MeetingCleanup,
     _gcal_event_to_meeting_dict,
@@ -131,7 +132,7 @@ class TestIsDuplicate:
 class TestMergeGcalEvents:
     """Tests for get_todays_meetings with gcal_client."""
 
-    @patch.object(MeetingCleanup, "_get_ics_data", return_value=None)
+    @patch.object(IcsParser, "get_ics_data", return_value=None)
     def test_gcal_only_meetings_appear(self, _mock_ics: MagicMock) -> None:
         """GCal meetings should appear when IMAP has no meetings."""
         client = MagicMock()
@@ -158,7 +159,7 @@ class TestMergeGcalEvents:
         assert result[0]["id"] == "gcal:g1"
         assert result[0]["index"] == 1
 
-    @patch.object(MeetingCleanup, "_get_ics_data", return_value=None)
+    @patch.object(IcsParser, "get_ics_data", return_value=None)
     def test_no_gcal_client_returns_imap_only(self, _mock_ics: MagicMock) -> None:
         """Without gcal_client, only IMAP meetings are returned."""
         client = MagicMock()
@@ -172,7 +173,7 @@ class TestMergeGcalEvents:
         )
         assert result == []
 
-    @patch.object(MeetingCleanup, "_get_ics_data", return_value=None)
+    @patch.object(IcsParser, "get_ics_data", return_value=None)
     def test_deduplication_marks_both(self, _mock_ics: MagicMock) -> None:
         """A meeting existing in both IMAP and GCal should be marked 'both'."""
         client = MagicMock()
@@ -205,7 +206,7 @@ class TestMergeGcalEvents:
         assert merged[0]["source"] == "both"
         assert merged[0]["id"] == "gcal:g1"
 
-    @patch.object(MeetingCleanup, "_get_ics_data", return_value=None)
+    @patch.object(IcsParser, "get_ics_data", return_value=None)
     def test_gcal_failure_falls_back(self, _mock_ics: MagicMock) -> None:
         """If gcal_client raises, IMAP meetings still returned."""
         client = MagicMock()
@@ -223,7 +224,7 @@ class TestMergeGcalEvents:
         )
         assert result == []
 
-    @patch.object(MeetingCleanup, "_get_ics_data", return_value=None)
+    @patch.object(IcsParser, "get_ics_data", return_value=None)
     def test_dedup_across_calendars(self, _mock_ics: MagicMock) -> None:
         """Same event in multiple GCal calendars should only appear once."""
         client = MagicMock()

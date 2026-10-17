@@ -82,7 +82,7 @@ def _processor(
 class TestDetectInvite:
     """Tests for InviteProcessor.detect_invite."""
 
-    @patch("src.processors.invite_processor.MeetingCleanup._get_ics_data")
+    @patch("src.processors.invite_processor.IcsParser.get_ics_data")
     def test_returns_none_when_no_ics(self, mock_get_ics: MagicMock) -> None:
         """When the email has no ICS data, detect_invite returns None."""
         mock_get_ics.return_value = None
@@ -94,7 +94,7 @@ class TestDetectInvite:
         assert result is None
         mock_get_ics.assert_called_once_with(email_msg)
 
-    @patch("src.processors.invite_processor.MeetingCleanup._get_ics_data")
+    @patch("src.processors.invite_processor.IcsParser.get_ics_data")
     def test_returns_parsed_invite_when_ics_found(self, mock_get_ics: MagicMock) -> None:
         """When ICS data exists, detect_invite returns a ParsedInvite."""
         ics_bytes = (
@@ -121,7 +121,7 @@ class TestDetectInvite:
         assert result.summary == "Sprint Review"
         assert result.method == "REQUEST"
 
-    @patch("src.processors.invite_processor.MeetingCleanup._get_ics_data")
+    @patch("src.processors.invite_processor.IcsParser.get_ics_data")
     def test_subject_defaults_to_no_subject(self, mock_get_ics: MagicMock) -> None:
         """When email has no subject, detect_invite uses '(no subject)'."""
         mock_get_ics.return_value = b"BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nEND:VEVENT\r\nEND:VCALENDAR"

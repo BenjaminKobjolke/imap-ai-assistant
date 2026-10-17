@@ -22,8 +22,8 @@ from src.constants import (
 from src.email.imap_client import EnhancedImapClient
 from src.interaction.scheduler_prompts import send_output
 from src.processors.action_result import ActionResult
+from src.processors.ics_parser import IcsParser
 from src.processors.invite_rsvp import InviteRsvp
-from src.processors.meeting_cleanup import MeetingCleanup
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +75,7 @@ class InviteProcessor:
 
     def detect_invite(self, msg_id: object, email_msg: object) -> ParsedInvite | None:
         """Check whether *email_msg* contains ICS data and return a parsed invite."""
-        ics_data = MeetingCleanup._get_ics_data(email_msg)
+        ics_data = IcsParser.get_ics_data(email_msg)
         if ics_data is None:
             return None
 
@@ -466,7 +466,7 @@ class InviteProcessor:
             logger.warning("Failed to parse ICS with icalendar library: %s", e)
             try:
                 ics_text = ics_data.decode("utf-8", errors="replace")
-                parsed = MeetingCleanup._parse_vevent(ics_text)
+                parsed = IcsParser.parse_vevent(ics_text)
                 if parsed:
                     result["dtstart"] = parsed.get("dtstart")
                     result["dtend"] = parsed.get("dtend")
