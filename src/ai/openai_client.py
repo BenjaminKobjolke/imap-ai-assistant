@@ -56,7 +56,7 @@ class OpenAIClient:
         self, api_key: str, model: str = DEFAULT_MODEL, max_completion_tokens: int = DEFAULT_MAX_TOKENS,
         temperature: float = DEFAULT_TEMPERATURE, other_people: list[str] | None = None,
         app_logger: ApplicationLogger | None = None,
-    ):
+    ) -> None:
         self.client = OpenAI(api_key=api_key, timeout=OPENAI_TIMEOUT)
         self.model = model
         self.max_completion_tokens = max_completion_tokens
@@ -157,7 +157,9 @@ class OpenAIClient:
                     data = json.loads(content)
                     title = data.get("title", "")
                     assignee = data.get("assignee", "self")
-                    validated = validate_structured_todo(title, data.get("priority", 2), data.get("due_date", "tomorrow"))
+                    validated = validate_structured_todo(
+                        title, data.get("priority", 2), data.get("due_date", "tomorrow")
+                    )
                     if validated:
                         clean_title, priority, due_date = validated
                         result = TodoResult(clean_title, priority, due_date, assignee)
@@ -213,12 +215,22 @@ class OpenAIClient:
             )
             content = self._chat(ChatCall(
                 "client_response", self._prompts.client_response_system_prompt, user_prompt,
-                {"original_subject": original_subject,
-                 "original_content": original_content[:500] + "..." if len(original_content) > 500 else original_content,
-                 "assigned_task": assigned_task, "assignee_response": assignee_response,
-                 "last_sent_context": (last_sent_context[:200] + "..." if last_sent_context and len(last_sent_context) > 200
-                                       else last_sent_context),
-                 "user_prompt": user_prompt[:500] + "..." if len(user_prompt) > 500 else user_prompt},
+                {
+                    "original_subject": original_subject,
+                    "original_content": (
+                        original_content[:500] + "..."
+                        if len(original_content) > 500
+                        else original_content
+                    ),
+                    "assigned_task": assigned_task,
+                    "assignee_response": assignee_response,
+                    "last_sent_context": (
+                        last_sent_context[:200] + "..."
+                        if last_sent_context and len(last_sent_context) > 200
+                        else last_sent_context
+                    ),
+                    "user_prompt": user_prompt[:500] + "..." if len(user_prompt) > 500 else user_prompt,
+                },
                 500, 0.7, json_mode=True, error_context={"original_subject": original_subject},
             ))
             if content:
@@ -257,7 +269,9 @@ class OpenAIClient:
     def correct_grammar(self, body_text: str) -> str | None:
         """Correct grammar and spelling in draft text."""
         try:
-            user_prompt = Template(self._prompts.draft_grammar_user_prompt_template).safe_substitute(body_text=body_text)
+            user_prompt = Template(
+                self._prompts.draft_grammar_user_prompt_template
+            ).safe_substitute(body_text=body_text)
             content = self._chat(ChatCall(
                 "grammar_correction", self._prompts.draft_grammar_system_prompt, user_prompt,
                 {"body_text": body_text[:300] + "..."}, 500, 0.1,

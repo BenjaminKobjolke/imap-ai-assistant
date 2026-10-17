@@ -95,7 +95,10 @@ def test_command_builders_preserve_cli_arguments(imap_plugin: ModuleType) -> Non
     }
     expected = {
         "add_date": ["--add-date", "Title", "tomorrow", "09:00-10:00", "@Work"],
-        "search": ["--search", "invoice", "--body", "paid", "--date", "tomorrow", "--date-after", "01.01.2026", "--date-before", "31.01.2026", "--path", "INBOX"],
+        "search": [
+            "--search", "invoice", "--body", "paid", "--date", "tomorrow",
+            "--date-after", "01.01.2026", "--date-before", "31.01.2026", "--path", "INBOX",
+        ],
         "add_todo": ["--add-todo", "Title", "!2", "^tomorrow"],
         "todays_meetings": ["--todays-meetings"],
         "meetings": ["--meetings", "tomorrow"],
