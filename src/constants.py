@@ -46,6 +46,10 @@ CFG_EMAIL_ADDRESS = "email_address"
 CFG_TARGET_FOLDER = "target_folder"
 CFG_ADDITIONAL_SUBJECT_TAG = "additional_subject_tag"
 CFG_DRAFTS_ONLY = "drafts_only"
+SETTING_ACCEPTS_MEETINGS_CALENDAR = (
+    "meetings", "google_calendar", "accepts_meetings_calendar",
+)
+SETTING_ADD_DATE_CALENDAR = ("meetings", "google_calendar", "add_date_calendar")
 
 # ---------------------------------------------------------------------------
 # Markers and prefixes

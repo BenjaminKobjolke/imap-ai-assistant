@@ -12,6 +12,7 @@ import re
 from datetime import datetime
 
 from src.config.settings import ConfigManager
+from src.constants import SETTING_ACCEPTS_MEETINGS_CALENDAR, SETTING_ADD_DATE_CALENDAR
 from src.interaction.scheduler_prompts import SchedulerChoice, send_output
 from src.processors.meeting_cleanup import MeetingCleanup
 
@@ -57,21 +58,33 @@ class CalendarService:
 
     def _setup_meeting_calendar(self, calendars: list[dict], cal_names: dict[str, str]) -> str:
         """Step 1: Let the user pick the calendar for adding events."""
-        current_id = self.config.accepts_meetings_calendar_id
-        current_name = cal_names.get(current_id, current_id)
+        return self._pick_single_calendar(
+            calendars,
+            cal_names,
+            self.config.accepts_meetings_calendar_id,
+            "Meeting Calendar",
+            list(SETTING_ACCEPTS_MEETINGS_CALENDAR),
+        )
 
-        print("\nMeeting Calendar")
+    def _pick_single_calendar(
+        self,
+        calendars: list[dict],
+        cal_names: dict[str, str],
+        current_id: str,
+        title: str,
+        setting_key: list[str],
+    ) -> str:
+        """Share the selection flow while keeping each calendar setting independent."""
+        current_name = cal_names.get(current_id, current_id)
+        print(f"\n{title}")
         print(f"Current: {current_name} ({current_id})")
         print()
-
         for i, cal in enumerate(calendars, 1):
             cal_id = cal.get("id", "")
             name = cal.get("summary", "(unnamed)")
             marker = " <-- active" if cal_id == current_id else ""
             print(f"  {i}. {name} -- {cal_id}{marker}")
-
         print("\nPick a number to change, or press Enter to keep current:")
-
         while True:
             choice = input("  > ").strip()
             if choice == "":
@@ -80,10 +93,7 @@ class CalendarService:
                 selected = calendars[int(choice) - 1]
                 new_id = selected["id"]
                 new_name = selected.get("summary", "")
-                self.config.save_setting(
-                    ["meetings", "google_calendar", "accepts_meetings_calendar"],
-                    {"name": new_name, "id": new_id},
-                )
+                self.config.save_setting(setting_key, {"name": new_name, "id": new_id})
                 print(f"  Saved: {new_name} ({new_id})")
                 return new_id
             print("  Invalid choice. Try again.")
@@ -132,36 +142,13 @@ class CalendarService:
 
     def _setup_add_date_calendar(self, calendars: list[dict], cal_names: dict[str, str]) -> str:
         """Step 3: Let the user pick the default calendar for --add-date events."""
-        current_id = self.config.add_date_calendar_id
-        current_name = cal_names.get(current_id, current_id)
-
-        print("\nAdd-Date Calendar (default for --add-date)")
-        print(f"Current: {current_name} ({current_id})")
-        print()
-
-        for i, cal in enumerate(calendars, 1):
-            cal_id = cal.get("id", "")
-            name = cal.get("summary", "(unnamed)")
-            marker = " <-- active" if cal_id == current_id else ""
-            print(f"  {i}. {name} -- {cal_id}{marker}")
-
-        print("\nPick a number to change, or press Enter to keep current:")
-
-        while True:
-            choice = input("  > ").strip()
-            if choice == "":
-                return current_id
-            if choice.isdigit() and 1 <= int(choice) <= len(calendars):
-                selected = calendars[int(choice) - 1]
-                new_id = selected["id"]
-                new_name = selected.get("summary", "")
-                self.config.save_setting(
-                    ["meetings", "google_calendar", "add_date_calendar"],
-                    {"name": new_name, "id": new_id},
-                )
-                print(f"  Saved: {new_name} ({new_id})")
-                return new_id
-            print("  Invalid choice. Try again.")
+        return self._pick_single_calendar(
+            calendars,
+            cal_names,
+            self.config.add_date_calendar_id,
+            "Add-Date Calendar (default for --add-date)",
+            list(SETTING_ADD_DATE_CALENDAR),
+        )
 
     # -- Non-interactive setters ------------------------------------------------
 
