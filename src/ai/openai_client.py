@@ -2,14 +2,19 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 import time
 from dataclasses import dataclass
+from string import Template
 from typing import Any
 
 from openai import OpenAI
 
 from src.ai.prompt_loader import PromptLoader
+from src.ai.todo_result import (
+    TodoResult,
+    create_fallback_todo,
+    validate_structured_todo,
+)
 from src.constants import (
     DEFAULT_MAX_TOKENS,
     DEFAULT_MODEL,
@@ -31,20 +36,17 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
-class TodoResult:
-    """Structured result from AI todo generation."""
+class ChatCall:
+    """Bundle the prompts and request settings for one OpenAI chat call."""
 
-    title: str
-    priority: int
-    due_date: str
-    assignee: str
-    due_time: str = ""
-
-    @property
-    def rtm_text(self) -> str:
-        """Assemble into RTM format: 'Title !priority ^due_date [HH:MM]'."""
-        time_part = f" {self.due_time}" if self.due_time else ""
-        return f"{self.title} !{self.priority} ^{self.due_date}{time_part}"
+    operation: str
+    system_prompt: str
+    user_prompt: str
+    request_data: dict[str, Any]
+    max_completion_tokens: int
+    temperature: float
+    json_mode: bool = False
+    error_context: dict[str, Any] | None = None
 
 
 class OpenAIClient:
@@ -63,662 +65,267 @@ class OpenAIClient:
         self.app_logger = app_logger
         self._prompts = PromptLoader()
 
-    @property
-    def system_prompt(self) -> str:
-        """Get the system prompt."""
-        return self._prompts.system_prompt
+    @staticmethod
+    def _usage(response: Any) -> dict[str, int]:
+        """Normalize optional API usage values for consistent logs."""
+        usage = getattr(response, "usage", None)
+        return {
+            "prompt_tokens": getattr(usage, "prompt_tokens", 0) or 0,
+            "completion_tokens": getattr(usage, "completion_tokens", 0) or 0,
+            "total_tokens": getattr(usage, "total_tokens", 0) or 0,
+        }
 
-    @property
-    def user_prompt_template(self) -> str:
-        """Get the user prompt template."""
-        return self._prompts.user_prompt_template
+    def _chat(self, call: ChatCall) -> str | None:
+        """Log, execute, and normalize one chat completion request."""
+        request_id: str | None = None
+        started = time.time()
+        request_data = {
+            **call.request_data,
+            "system_prompt": call.system_prompt[:200] + "..." if len(call.system_prompt) > 200 else call.system_prompt,
+        }
+        try:
+            if self.app_logger:
+                metadata = {
+                    "model": self.model,
+                    "max_completion_tokens": call.max_completion_tokens,
+                    "temperature": call.temperature,
+                }
+                request_id = self.app_logger.log_ai_request(call.operation, request_data, metadata)
 
-    @property
-    def task_completion_system_prompt(self) -> str:
-        """Get the task completion system prompt."""
-        return self._prompts.task_completion_system_prompt
+            arguments: dict[str, Any] = {
+                "model": self.model,
+                "messages": [
+                    {"role": "system", "content": call.system_prompt},
+                    {"role": "user", "content": call.user_prompt},
+                ],
+                "max_completion_tokens": call.max_completion_tokens,
+                "temperature": call.temperature,
+            }
+            if call.json_mode:
+                arguments["response_format"] = {"type": "json_object"}
+            response = self.client.chat.completions.create(**arguments)
 
-    @property
-    def task_completion_user_prompt_template(self) -> str:
-        """Get the task completion user prompt template."""
-        return self._prompts.task_completion_user_prompt_template
+            content = None
+            if response.choices and response.choices[0].message:
+                content = response.choices[0].message.content
+            if not content:
+                return None
 
-    @property
-    def client_response_system_prompt(self) -> str:
-        """Get the client response system prompt."""
-        return self._prompts.client_response_system_prompt
-
-    @property
-    def client_response_user_prompt_template(self) -> str:
-        """Get the client response user prompt template."""
-        return self._prompts.client_response_user_prompt_template
+            content = content.strip()
+            logger.info(f"OpenAI response: {content}")
+            if self.app_logger and request_id:
+                self.app_logger.log_ai_response(
+                    request_id,
+                    call.operation,
+                    content,
+                    time.time() - started,
+                    self._usage(response),
+                )
+            return content
+        except Exception as error:
+            if self.app_logger:
+                if not request_id:
+                    request_id = str(time.time())
+                self.app_logger.log_ai_error(request_id, call.operation, error, call.error_context)
+            raise
 
     def process_email_to_todo(
         self, subject: str, first_line: str, body_excerpt: str, extra_instructions: str = "",
     ) -> TodoResult | None:
-        """Process email content into RTM todo format using OpenAI.
-
-        extra_instructions come from matching email rules and let a single
-        sender or project deviate from the general prompt.
-        """
-        request_id = None
-        start_time = time.time()
-
+        """Convert email content into an assigned todo, falling back on errors."""
         try:
-            from string import Template
-            template = Template(self.user_prompt_template)
-
-            # Create assignees list
-            assignees = ["self", *self.other_people]
-            assignees_str = ", ".join(assignees)
-
+            template = Template(self._prompts.user_prompt_template)
+            assignees_str = ", ".join(["self", *self.other_people])
             user_prompt = template.safe_substitute(
-                subject=subject,
-                first_line=first_line,
-                body_excerpt=body_excerpt,
-                assignees=assignees_str
+                subject=subject, first_line=first_line, body_excerpt=body_excerpt, assignees=assignees_str,
             )
-            # Appended after substitution so a "$" in rule text is kept literally
             if extra_instructions:
                 user_prompt = f"{user_prompt}\n\nAdditional instructions:\n{extra_instructions}"
-
-            # Log the request
-            if self.app_logger:
-                request_data = {
-                    "subject": subject,
-                    "first_line": first_line,
-                    "body_excerpt": body_excerpt,
-                    "system_prompt": (
-                        self.system_prompt[:200] + "..."
-                        if len(self.system_prompt) > 200 else self.system_prompt
-                    ),
-                    "user_prompt": user_prompt
-                }
-                metadata = {
-                    "model": self.model,
-                    "max_completion_tokens": self.max_completion_tokens,
-                    "temperature": self.temperature
-                }
-                request_id = self.app_logger.log_ai_request("email_to_todo", request_data, metadata)
-
-            # Call OpenAI API with JSON mode
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": self.system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
+            content = self._chat(ChatCall(
+                operation="email_to_todo",
+                system_prompt=self._prompts.system_prompt,
+                user_prompt=user_prompt,
+                request_data={"subject": subject, "first_line": first_line, "body_excerpt": body_excerpt,
+                              "user_prompt": user_prompt},
                 max_completion_tokens=self.max_completion_tokens,
                 temperature=self.temperature,
-                response_format={"type": "json_object"}
-            )
-
-            # Extract response content
-            if response.choices and response.choices[0].message and response.choices[0].message.content:
-                response_content = response.choices[0].message.content.strip()
-                logger.info(f"OpenAI response: {response_content}")
-
-                # Log the response
-                if self.app_logger and request_id:
-                    processing_time = time.time() - start_time
-                    tokens_used = {
-                        "prompt_tokens": response.usage.prompt_tokens if response.usage else 0,
-                        "completion_tokens": response.usage.completion_tokens if response.usage else 0,
-                        "total_tokens": response.usage.total_tokens if response.usage else 0
-                    }
-                    self.app_logger.log_ai_response(
-                        request_id, "email_to_todo",
-                        response_content, processing_time, tokens_used,
-                    )
-
+                json_mode=True,
+                error_context={"subject": subject},
+            ))
+            if content:
                 try:
-                    # Parse JSON response
-                    json_response = json.loads(response_content)
-
-                    # Extract structured fields from JSON
-                    title = json_response.get('title', '')
-                    assignee = json_response.get('assignee', 'self')
-                    priority = json_response.get('priority', 2)
-                    due_date = json_response.get('due_date', 'tomorrow')
-
-                    # Validate structured fields
-                    validated = self._validate_structured_todo(title, priority, due_date)
+                    data = json.loads(content)
+                    title = data.get("title", "")
+                    assignee = data.get("assignee", "self")
+                    validated = validate_structured_todo(title, data.get("priority", 2), data.get("due_date", "tomorrow"))
                     if validated:
-                        clean_title, clean_priority, clean_due_date = validated
-                        result = TodoResult(clean_title, clean_priority, clean_due_date, assignee)
-                        logger.info(f"Validated todo: {result.rtm_text}, assignee: {assignee}")
+                        clean_title, priority, due_date = validated
+                        result = TodoResult(clean_title, priority, due_date, assignee)
+                        logger.info("Validated todo: %s, assignee: %s", result.rtm_text, assignee)
                         return result
-                    else:
-                        logger.warning(
-                            f"Invalid structured todo from OpenAI: "
-                            f"title={title}, priority={priority}, due_date={due_date}"
-                        )
-                        return self._create_fallback_todo(subject, first_line, body_excerpt)
-
-                except json.JSONDecodeError as e:
-                    logger.error(f"Failed to parse JSON response: {e}")
-                    return self._create_fallback_todo(subject, first_line, body_excerpt)
+                    logger.warning(
+                        f"Invalid structured todo from OpenAI: title={title}, "
+                        f"priority={data.get('priority', 2)}, due_date={data.get('due_date', 'tomorrow')}"
+                    )
+                except json.JSONDecodeError as error:
+                    logger.error(f"Failed to parse JSON response: {error}")
             else:
                 logger.error("No response content from OpenAI")
-                return self._create_fallback_todo(subject, first_line, body_excerpt)
-
-        except Exception as e:
-            logger.error(f"Error processing email with OpenAI: {e}")
-            # Log the error
-            if self.app_logger:
-                if not request_id:
-                    request_id = str(time.time())
-                self.app_logger.log_ai_error(request_id, "email_to_todo", e, {"subject": subject})
-            return self._create_fallback_todo(subject, first_line, body_excerpt)
-
-    def _validate_structured_todo(
-        self, title: str | Any, priority: int | Any, due_date: str | Any,
-    ) -> tuple[str, int, str] | None:
-        """Validate structured todo fields returned by OpenAI."""
-        try:
-            # Validate title is a non-empty string
-            if not isinstance(title, str) or not title.strip():
-                logger.debug("Structured todo validation failed: empty or non-string title")
-                return None
-            clean_title = title.strip()
-
-            # Validate priority is int 1, 2, or 3
-            try:
-                clean_priority = int(priority)
-            except (TypeError, ValueError):
-                logger.debug(f"Structured todo validation failed: invalid priority={priority}")
-                return None
-            if clean_priority not in (1, 2, 3):
-                logger.debug(f"Structured todo validation failed: priority={clean_priority} not in 1-3")
-                return None
-
-            # Validate due_date matches today|tomorrow|DD.MM.YYYY
-            if not isinstance(due_date, str) or not due_date.strip():
-                logger.debug("Structured todo validation failed: empty or non-string due_date")
-                return None
-            clean_due_date = due_date.strip()
-            due_date_pattern = r'^(today|tomorrow|\d{1,2}\.\d{1,2}\.\d{4})$'
-            if not re.match(due_date_pattern, clean_due_date):
-                logger.debug(f"Structured todo validation failed: due_date={clean_due_date} invalid format")
-                return None
-
-            return clean_title, clean_priority, clean_due_date
-
-        except Exception as e:
-            logger.debug(f"Error validating structured todo: {e}")
-            return None
-
-    def _create_fallback_todo(self, subject: str, first_line: str, sender: str = "") -> TodoResult:
-        """Create a fallback todo when OpenAI fails or returns invalid format."""
-        # Use subject as todo name, default importance and due date
-        todo_name = subject or first_line or "Unknown task"
-
-        # Clean up the todo name (remove common email prefixes)
-        todo_name = re.sub(r'^(Re:|Fwd?:|AW:)\s*', '', todo_name, flags=re.IGNORECASE)
-        todo_name = todo_name.strip()
-
-        # Add sender context if it's not from XIDA
-        if sender and 'xida' not in sender.lower():
-            # Extract sender name or company from sender string
-            sender_name = self._extract_sender_name(sender)
-            if sender_name:
-                todo_name = f"{sender_name}: {todo_name}"
-
-        # Limit length
-        if len(todo_name) > 50:
-            todo_name = todo_name[:50] + "..."
-
-        result = TodoResult(title=todo_name, priority=2, due_date="tomorrow", assignee="self")
-        logger.info(f"Created fallback todo: {result.rtm_text}")
-        return result
-
-    def _extract_sender_name(self, sender: str) -> str:
-        """Extract clean sender name from sender string."""
-        try:
-            from email.utils import parseaddr
-            # Parse "Name <email@domain.com>" format
-            name, email_addr = parseaddr(sender)
-
-            if name and name.strip():
-                return name.strip()
-            elif email_addr:
-                # Extract domain name as fallback
-                if '@' in email_addr:
-                    domain = email_addr.split('@')[1]
-                    # Clean up domain (remove .com, .de, etc.)
-                    domain = domain.split('.')[0]
-                    return domain.title()
-                return email_addr
-            else:
-                return sender
-        except Exception as e:
-            logger.debug(f"Error extracting sender name from '{sender}': {e}")
-            return sender
+        except Exception as error:
+            logger.error(f"Error processing email with OpenAI: {error}")
+        return create_fallback_todo(subject, first_line)
 
     def check_task_completion(self, original_task: str, assignee_response: str) -> dict[str, Any]:
-        """Check if a task is completed based on assignee's response."""
-        request_id = None
-        start_time = time.time()
-
+        """Determine whether an assignee's response completes a task."""
         try:
-            from string import Template
-            template = Template(self.task_completion_user_prompt_template)
-            user_prompt = template.safe_substitute(
-                original_task=original_task,
-                assignee_response=assignee_response
+            user_prompt = Template(self._prompts.task_completion_user_prompt_template).safe_substitute(
+                original_task=original_task, assignee_response=assignee_response,
             )
-
-            # Log the request
-            if self.app_logger:
-                request_data = {
-                    "original_task": original_task,
-                    "assignee_response": assignee_response,
-                    "system_prompt": (
-                        self.task_completion_system_prompt[:200] + "..."
-                        if len(self.task_completion_system_prompt) > 200
-                        else self.task_completion_system_prompt
-                    ),
-                    "user_prompt": user_prompt
-                }
-                metadata = {
-                    "model": self.model,
-                    "max_completion_tokens": 150,
-                    "temperature": 0.3
-                }
-                request_id = self.app_logger.log_ai_request("task_completion", request_data, metadata)
-
-            # Call OpenAI API with JSON mode
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": self.task_completion_system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                max_completion_tokens=150,
-                temperature=0.3,
-                response_format={"type": "json_object"}
-            )
-
-            if response.choices and response.choices[0].message and response.choices[0].message.content:
-                response_content = response.choices[0].message.content.strip()
-                logger.info(f"Task completion check response: {response_content}")
-
-                # Log the response
-                if self.app_logger and request_id:
-                    processing_time = time.time() - start_time
-                    tokens_used = {
-                        "prompt_tokens": response.usage.prompt_tokens if response.usage else 0,
-                        "completion_tokens": response.usage.completion_tokens if response.usage else 0,
-                        "total_tokens": response.usage.total_tokens if response.usage else 0
-                    }
-                    self.app_logger.log_ai_response(
-                        request_id, "task_completion",
-                        response_content, processing_time, tokens_used,
-                    )
-
+            content = self._chat(ChatCall(
+                "task_completion", self._prompts.task_completion_system_prompt, user_prompt,
+                {"original_task": original_task, "assignee_response": assignee_response, "user_prompt": user_prompt},
+                150, 0.3, json_mode=True, error_context={"original_task": original_task},
+            ))
+            if content:
                 try:
-                    json_response: dict[str, Any] = json.loads(response_content)
-                    return json_response
-                except json.JSONDecodeError as e:
-                    logger.error(f"Failed to parse task completion response: {e}")
+                    return json.loads(content)
+                except json.JSONDecodeError as error:
+                    logger.error(f"Failed to parse task completion response: {error}")
                     return {KEY_STATUS: STATUS_UNCLEAR, KEY_CONFIDENCE: 1, KEY_REASON: "Failed to parse response"}
-            else:
-                return {KEY_STATUS: STATUS_UNCLEAR, KEY_CONFIDENCE: 1, KEY_REASON: "No response from OpenAI"}
+            return {KEY_STATUS: STATUS_UNCLEAR, KEY_CONFIDENCE: 1, KEY_REASON: "No response from OpenAI"}
+        except Exception as error:
+            logger.error(f"Error checking task completion: {error}")
+            return {KEY_STATUS: STATUS_UNCLEAR, KEY_CONFIDENCE: 1, KEY_REASON: f"Error: {error!s}"}
 
-        except Exception as e:
-            logger.error(f"Error checking task completion: {e}")
-            # Log the error
-            if self.app_logger:
-                if not request_id:
-                    request_id = str(time.time())
-                self.app_logger.log_ai_error(request_id, "task_completion", e, {"original_task": original_task})
-            return {KEY_STATUS: STATUS_UNCLEAR, KEY_CONFIDENCE: 1, KEY_REASON: f"Error: {e!s}"}
-
-    def generate_client_response(self, original_subject: str, original_content: str,
-                                 assigned_task: str, assignee_response: str,
-                                 last_sent_context: str | None = None) -> dict[str, str]:
-        """Generate a response to send to the client based on completed task."""
-        request_id = None
-        start_time = time.time()
-
+    def generate_client_response(
+        self, original_subject: str, original_content: str, assigned_task: str, assignee_response: str,
+        last_sent_context: str | None = None,
+    ) -> dict[str, str]:
+        """Generate a client reply after an assigned task is completed."""
+        fallback = {KEY_RESPONSE: "Task completed.", KEY_SUBJECT: PREFIX_REPLY + original_subject}
         try:
-            from string import Template
-            template = Template(self.client_response_user_prompt_template)
-            user_prompt = template.safe_substitute(
+            user_prompt = Template(self._prompts.client_response_user_prompt_template).safe_substitute(
                 original_subject=original_subject,
                 original_content=original_content,
                 assigned_task=assigned_task,
                 assignee_response=assignee_response,
-                last_sent_context=last_sent_context or "No previous email context available"
+                last_sent_context=last_sent_context or "No previous email context available",
             )
-
-            # Log the request
-            if self.app_logger:
-                request_data = {
-                    "original_subject": original_subject,
-                    "original_content": (
-                        original_content[:500] + "..."
-                        if len(original_content) > 500 else original_content
-                    ),
-                    "assigned_task": assigned_task,
-                    "assignee_response": assignee_response,
-                    "last_sent_context": (
-                        (last_sent_context[:200] + "...")
-                        if last_sent_context and len(last_sent_context) > 200
-                        else last_sent_context
-                    ),
-                    "system_prompt": (
-                        self.client_response_system_prompt[:200] + "..."
-                        if len(self.client_response_system_prompt) > 200
-                        else self.client_response_system_prompt
-                    ),
-                    "user_prompt": (
-                        user_prompt[:500] + "..."
-                        if len(user_prompt) > 500 else user_prompt
-                    )
-                }
-                metadata = {
-                    "model": self.model,
-                    "max_completion_tokens": 500,
-                    "temperature": 0.7
-                }
-                request_id = self.app_logger.log_ai_request("client_response", request_data, metadata)
-
-            # Call OpenAI API with JSON mode
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": self.client_response_system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                max_completion_tokens=500,
-                temperature=0.7,
-                response_format={"type": "json_object"}
-            )
-
-            if response.choices and response.choices[0].message and response.choices[0].message.content:
-                response_content = response.choices[0].message.content.strip()
-                logger.info(f"Client response generation: {response_content}")
-
-                # Log the response
-                if self.app_logger and request_id:
-                    processing_time = time.time() - start_time
-                    tokens_used = {
-                        "prompt_tokens": response.usage.prompt_tokens if response.usage else 0,
-                        "completion_tokens": response.usage.completion_tokens if response.usage else 0,
-                        "total_tokens": response.usage.total_tokens if response.usage else 0
-                    }
-                    self.app_logger.log_ai_response(
-                        request_id, "client_response",
-                        response_content, processing_time, tokens_used,
-                    )
-
+            content = self._chat(ChatCall(
+                "client_response", self._prompts.client_response_system_prompt, user_prompt,
+                {"original_subject": original_subject,
+                 "original_content": original_content[:500] + "..." if len(original_content) > 500 else original_content,
+                 "assigned_task": assigned_task, "assignee_response": assignee_response,
+                 "last_sent_context": (last_sent_context[:200] + "..." if last_sent_context and len(last_sent_context) > 200
+                                       else last_sent_context),
+                 "user_prompt": user_prompt[:500] + "..." if len(user_prompt) > 500 else user_prompt},
+                500, 0.7, json_mode=True, error_context={"original_subject": original_subject},
+            ))
+            if content:
                 try:
-                    json_response: dict[str, str] = json.loads(response_content)
-                    return json_response
-                except json.JSONDecodeError as e:
-                    logger.error(f"Failed to parse client response: {e}")
-                    return {KEY_RESPONSE: "Task completed.", KEY_SUBJECT: PREFIX_REPLY + original_subject}
-            else:
-                return {KEY_RESPONSE: "Task completed.", KEY_SUBJECT: PREFIX_REPLY + original_subject}
-
-        except Exception as e:
-            logger.error(f"Error generating client response: {e}")
-            # Log the error
-            if self.app_logger:
-                if not request_id:
-                    request_id = str(time.time())
-                self.app_logger.log_ai_error(request_id, "client_response", e, {"original_subject": original_subject})
-            return {KEY_RESPONSE: "Task completed.", KEY_SUBJECT: PREFIX_REPLY + original_subject}
+                    return json.loads(content)
+                except json.JSONDecodeError as error:
+                    logger.error(f"Failed to parse client response: {error}")
+            return fallback
+        except Exception as error:
+            logger.error(f"Error generating client response: {error}")
+            return fallback
 
     def generate_draft_reply(
-        self,
-        original_subject: str,
-        original_body: str,
-        user_instruction: str,
-        conversation_history: str,
+        self, original_subject: str, original_body: str, user_instruction: str, conversation_history: str,
     ) -> str | None:
-        """Generate a draft reply body from user instruction and original email context."""
-        request_id = None
-        start_time = time.time()
-
+        """Draft a reply using the original email and conversation context."""
         try:
-            from string import Template
-
-            template = Template(self._prompts.draft_reply_user_prompt_template)
-            user_prompt = template.safe_substitute(
-                original_subject=original_subject,
-                original_body=original_body,
-                user_instruction=user_instruction,
+            user_prompt = Template(self._prompts.draft_reply_user_prompt_template).safe_substitute(
+                original_subject=original_subject, original_body=original_body, user_instruction=user_instruction,
                 conversation_history=conversation_history or "(none)",
             )
-
-            if self.app_logger:
-                request_data = {
-                    "original_subject": original_subject,
-                    "user_instruction": user_instruction,
-                    "system_prompt": self._prompts.draft_reply_system_prompt[:200] + "...",
-                    "user_prompt": user_prompt[:500] + "...",
-                }
-                metadata = {"model": self.model, "max_completion_tokens": 500, "temperature": 0.7}
-                request_id = self.app_logger.log_ai_request("draft_reply", request_data, metadata)
-
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": self._prompts.draft_reply_system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                max_completion_tokens=500,
-                temperature=0.7,
-            )
-
-            if response.choices and response.choices[0].message and response.choices[0].message.content:
-                content = response.choices[0].message.content.strip()
-
-                if self.app_logger and request_id:
-                    processing_time = time.time() - start_time
-                    tokens_used = {
-                        "prompt_tokens": response.usage.prompt_tokens if response.usage else 0,
-                        "completion_tokens": response.usage.completion_tokens if response.usage else 0,
-                        "total_tokens": response.usage.total_tokens if response.usage else 0,
-                    }
-                    self.app_logger.log_ai_response(request_id, "draft_reply", content, processing_time, tokens_used)
-
+            content = self._chat(ChatCall(
+                "draft_reply", self._prompts.draft_reply_system_prompt, user_prompt,
+                {"original_subject": original_subject, "user_instruction": user_instruction,
+                 "user_prompt": user_prompt[:500] + "..."},
+                500, 0.7, error_context={"original_subject": original_subject},
+            ))
+            if content:
                 return content
-
             logger.error("No response content from OpenAI for draft reply")
             return None
-
-        except Exception as e:
-            logger.error(f"Error generating draft reply: {e}")
-            if self.app_logger:
-                if not request_id:
-                    request_id = str(time.time())
-                self.app_logger.log_ai_error(request_id, "draft_reply", e, {"original_subject": original_subject})
+        except Exception as error:
+            logger.error(f"Error generating draft reply: {error}")
             return None
 
     def correct_grammar(self, body_text: str) -> str | None:
-        """Correct grammar and spelling in the given text."""
-        request_id = None
-        start_time = time.time()
-
+        """Correct grammar and spelling in draft text."""
         try:
-            from string import Template
-
-            template = Template(self._prompts.draft_grammar_user_prompt_template)
-            user_prompt = template.safe_substitute(body_text=body_text)
-
-            if self.app_logger:
-                request_data = {
-                    "body_text": body_text[:300] + "...",
-                    "system_prompt": self._prompts.draft_grammar_system_prompt[:200] + "...",
-                }
-                metadata = {"model": self.model, "max_completion_tokens": 500, "temperature": 0.1}
-                request_id = self.app_logger.log_ai_request("grammar_correction", request_data, metadata)
-
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": self._prompts.draft_grammar_system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                max_completion_tokens=500,
-                temperature=0.1,
-            )
-
-            if response.choices and response.choices[0].message and response.choices[0].message.content:
-                content = response.choices[0].message.content.strip()
-
-                if self.app_logger and request_id:
-                    processing_time = time.time() - start_time
-                    tokens_used = {
-                        "prompt_tokens": response.usage.prompt_tokens if response.usage else 0,
-                        "completion_tokens": response.usage.completion_tokens if response.usage else 0,
-                        "total_tokens": response.usage.total_tokens if response.usage else 0,
-                    }
-                    self.app_logger.log_ai_response(
-                        request_id, "grammar_correction", content, processing_time, tokens_used,
-                    )
-
+            user_prompt = Template(self._prompts.draft_grammar_user_prompt_template).safe_substitute(body_text=body_text)
+            content = self._chat(ChatCall(
+                "grammar_correction", self._prompts.draft_grammar_system_prompt, user_prompt,
+                {"body_text": body_text[:300] + "..."}, 500, 0.1,
+            ))
+            if content:
                 return content
-
             logger.error("No response content from OpenAI for grammar correction")
             return None
-
-        except Exception as e:
-            logger.error(f"Error correcting grammar: {e}")
-            if self.app_logger:
-                if not request_id:
-                    request_id = str(time.time())
-                self.app_logger.log_ai_error(request_id, "grammar_correction", e)
+        except Exception as error:
+            logger.error(f"Error correcting grammar: {error}")
             return None
 
     def detect_salutation(self, email_address: str, sent_email_bodies: str) -> dict[str, Any] | None:
-        """Detect salutation from sent emails using AI. Returns {salutation, formal}."""
-        request_id = None
-        start_time = time.time()
-
+        """Detect the salutation used for an email address in sent messages."""
         try:
-            from string import Template
-
-            template = Template(self._prompts.salutation_user_prompt_template)
-            user_prompt = template.safe_substitute(
-                email_address=email_address,
-                sent_emails=sent_email_bodies,
+            user_prompt = Template(self._prompts.salutation_user_prompt_template).safe_substitute(
+                email_address=email_address, sent_emails=sent_email_bodies,
             )
-
-            if self.app_logger:
-                request_data = {
-                    "email_address": email_address,
-                    "sent_emails": sent_email_bodies[:300] + "...",
-                    "system_prompt": self._prompts.salutation_system_prompt[:200] + "...",
-                }
-                metadata = {"model": self.model, "max_completion_tokens": 100, "temperature": 0.3}
-                request_id = self.app_logger.log_ai_request("detect_salutation", request_data, metadata)
-
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": self._prompts.salutation_system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                max_completion_tokens=100,
-                temperature=0.3,
-                response_format={"type": "json_object"},
-            )
-
-            if response.choices and response.choices[0].message and response.choices[0].message.content:
-                content = response.choices[0].message.content.strip()
-
-                if self.app_logger and request_id:
-                    processing_time = time.time() - start_time
-                    tokens_used = {
-                        "prompt_tokens": response.usage.prompt_tokens if response.usage else 0,
-                        "completion_tokens": response.usage.completion_tokens if response.usage else 0,
-                        "total_tokens": response.usage.total_tokens if response.usage else 0,
-                    }
-                    self.app_logger.log_ai_response(
-                        request_id, "detect_salutation", content, processing_time, tokens_used
-                    )
-
+            content = self._chat(ChatCall(
+                "detect_salutation", self._prompts.salutation_system_prompt, user_prompt,
+                {"email_address": email_address, "sent_emails": sent_email_bodies[:300] + "..."},
+                100, 0.3, json_mode=True, error_context={"email_address": email_address},
+            ))
+            if content:
                 try:
-                    result: dict[str, Any] = json.loads(content)
+                    result = json.loads(content)
                     if KEY_SALUTATION in result and KEY_FORMAL in result:
                         return result
                     logger.warning(f"Salutation response missing required keys: {result}")
                     return None
-                except json.JSONDecodeError as e:
-                    logger.error(f"Failed to parse salutation response: {e}")
+                except json.JSONDecodeError as error:
+                    logger.error(f"Failed to parse salutation response: {error}")
                     return None
-
             logger.error("No response content from OpenAI for salutation detection")
             return None
-
-        except Exception as e:
-            logger.error(f"Error detecting salutation: {e}")
-            if self.app_logger:
-                if not request_id:
-                    request_id = str(time.time())
-                self.app_logger.log_ai_error(request_id, "detect_salutation", e, {"email_address": email_address})
+        except Exception as error:
+            logger.error(f"Error detecting salutation: {error}")
             return None
 
     def test_connection(self) -> bool:
-        """Test OpenAI API connection."""
+        """Test whether the configured OpenAI API connection can answer a short prompt."""
         request_id = None
         start_time = time.time()
-
         try:
-            # Log the test request
             if self.app_logger:
-                request_data = {
-                    "test_message": "Hello",
-                    "purpose": "connection_test"
-                }
-                metadata = {
-                    "model": self.model,
-                    "max_completion_tokens": 10
-                }
+                request_data = {"test_message": "Hello", "purpose": "connection_test"}
+                metadata = {"model": self.model, "max_completion_tokens": 10}
                 request_id = self.app_logger.log_ai_request("connection_test", request_data, metadata)
-
-            # Simple test API call
             response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[{"role": "user", "content": "Hello"}],
-                max_completion_tokens=10
+                model=self.model, messages=[{"role": "user", "content": "Hello"}], max_completion_tokens=10,
             )
-
             if response.choices:
                 logger.info("OpenAI API connection test successful")
-
-                # Log the successful test
                 if self.app_logger and request_id:
-                    processing_time = time.time() - start_time
                     response_data = {
                         "status": "success",
-                        "response": response.choices[0].message.content if response.choices[0].message else None
-                    }
-                    tokens_used = {
-                        "prompt_tokens": response.usage.prompt_tokens if response.usage else 0,
-                        "completion_tokens": response.usage.completion_tokens if response.usage else 0,
-                        "total_tokens": response.usage.total_tokens if response.usage else 0
+                        "response": response.choices[0].message.content if response.choices[0].message else None,
                     }
                     self.app_logger.log_ai_response(
-                        request_id, "connection_test",
-                        response_data, processing_time, tokens_used,
+                        request_id, "connection_test", response_data, time.time() - start_time, self._usage(response),
                     )
-
                 return True
-            else:
-                logger.error("OpenAI API connection test failed: No response")
-                return False
-
-        except Exception as e:
-            logger.error(f"OpenAI API connection test failed: {e}")
-            # Log the error
+            logger.error("OpenAI API connection test failed: No response")
+            return False
+        except Exception as error:
+            logger.error(f"OpenAI API connection test failed: {error}")
             if self.app_logger:
                 if not request_id:
                     request_id = str(time.time())
-                self.app_logger.log_ai_error(request_id, "connection_test", e)
+                self.app_logger.log_ai_error(request_id, "connection_test", error)
             return False
-
