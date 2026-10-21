@@ -1,3 +1,32 @@
+# Version
+2
+
+# Coding Rules (Pointer)
+
+This project's rules live in two files in the project root:
+
+- `CODING_RULES.md` — code quality and conventions. BINDING for all code work in
+  this repository, always.
+- `IMPLEMENTATION_FLOW.md` — the end-to-end flow to follow when planning and
+  implementing a change (checks, gates, Definition of Done).
+
+MANDATORY: Before writing or editing ANY code, you MUST Read BOTH files in full
+**in the current session**. Do not rely on memory of a previous session, a
+summary, or partial reads.
+
+If you are about to make a code change and have not read both files in this
+session: STOP, read them, then continue.
+
+An external tool may orchestrate the implementation itself. When a skill or run
+states that the implementation is orchestrated, ignore `IMPLEMENTATION_FLOW.md`
+entirely — the orchestrator runs those steps as its own phases. `CODING_RULES.md`
+stays binding either way.
+
+Do not inline rules back into this file and do not use `@import` for either file —
+they are intentionally referenced, not imported.
+
+This project's code directory is src/ (graphify graph scope; main.py is outside it).
+
 # CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
@@ -67,42 +96,14 @@ uv run python test_logger.py
 
 ## Coding Rules
 
-### Shell & CLI Rules
-- **No compound shell commands** — never chain commands with `&&`, `||`, or `;` (e.g., do NOT use `cd /d "..." && git log`). Run each command as a separate tool call instead.
-- **Never combine `cd` with other commands** — do NOT use `cd path && git status` or similar. Use absolute paths or run `cd` as a separate tool call.
-
-### Common Rules (All Languages)
-- Use English for all code, comments, and documentation
-- One file = one primary responsibility; split when a file exceeds ~300 lines
-- No hardcoded secrets — use environment variables or config files excluded from VCS
-- Every public function/method must have a docstring or doc-comment explaining *why*, not *what*
-- Prefer composition over inheritance
-- Delete dead code — do not comment it out
-- Use string constants or enums instead of magic strings/numbers; centralize constants in `src/constants.py`
-- Use structured logging (key-value pairs) instead of string interpolation in log messages
-- Handle errors explicitly — no silent catches or bare `except:`
-- Write small, focused functions (aim for < 30 lines per function)
-- Naming: `snake_case` for files and directories, descriptive names for variables and functions
-- **Use objects for related values** — bundle related values into DTOs/dataclasses instead of many parameters
-- **Prefer type-safe values** — use typed DTOs, enums, generics over loosely typed values (e.g. `dict`)
-- **DRY (Don't Repeat Yourself)** — extract shared logic into reusable functions
-- **TDD** — write tests first, confirm they fail, implement, confirm they pass
-- **Confirm dependency versions** — verify version with user before adding new packages
-
-### Python-Specific Rules
-- **Dependency management:** `uv` with `pyproject.toml` as single source of truth — no `requirements.txt`
-- **Formatting & linting:** `ruff` (configured in `pyproject.toml`)
-- **Type checking:** `mypy` (configured in `pyproject.toml`)
-- **Testing:** `pytest` — all tests live under `tests/`
-- **Imports:** Use `from __future__ import annotations` in every module for modern type syntax
-- **Type hints:** Required on all new function signatures (params + return)
-- **String formatting:** f-strings only — no `.format()` or `%`
-- **Data classes:** `@dataclass` or `NamedTuple` for plain data objects
-- **Path handling:** `pathlib.Path` — no `os.path`
-- **Logging:** Use `ApplicationLogger` (src/logging/app_logger.py) — no bare `print()` in library code
-- **Mocking:** Always use `spec=ClassName` with `MagicMock` to validate against the real interface
-- **Required batch files:** `start.bat` and `tools/tests.bat` must exist and be kept up to date
-- **Localization:** Use `python-localization` library for multi-language string support
+### Project-specific rules
+- Do not chain shell commands with `&&`, `||` or `;`, and never combine `cd` with another command.
+- Centralize string constants in `src/constants.py`.
+- Use `ApplicationLogger` (`src/logging/app_logger.py`); library code must not use bare `print()`.
+- Keep `start.bat` and `tools/tests.bat` up to date.
+- Use `from __future__ import annotations` in every module.
+- Use f-strings only.
+- Use `pathlib.Path` instead of `os.path`.
 
 ## Architecture & Core Components
 
