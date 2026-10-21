@@ -11,6 +11,7 @@
     "analyze_code_config.example.bat",
     "fix_ruff_issues.bat",
     "fix_ruff_issues_dry_run.bat",
+    "graphify_update.bat",
     "tests.bat"
   ],
   "analysis_commands_seen": {
