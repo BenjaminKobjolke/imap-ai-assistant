@@ -223,6 +223,8 @@ HANDOFF.md
 claude-plans/
 PLAN.md
 graphify-out/
+src/graphify-out/
+coding-rules.json
 tmp/commit_msg.tmp
 .reasonix/
 settings_live.json
