@@ -7,23 +7,13 @@
 # or /coding-rules:deepseek on -- do not edit in the project, it gets overwritten.
 set -u
 
-if [ $# -ne 3 ]; then
-  echo "usage: $0 <codex|deepseek> <prompt-file> <log-file>" >&2
-  exit 2
-fi
-
-if [ ! -f "$2" ]; then
-  echo "prompt file not found: $2" >&2
-  exit 2
-fi
+[ $# -eq 3 ] || { echo "usage: $0 <codex|deepseek> <prompt-file> <log-file>" >&2; exit 2; }
+[ -f "$2" ] || { echo "prompt file not found: $2" >&2; exit 2; }
 
 prompt=$(cat "$2")
 
 case "$1" in
   codex)    codex exec --dangerously-bypass-approvals-and-sandbox "$prompt" > "$3" 2>&1 < /dev/null ;;
   deepseek) reasonix run --auto "$prompt" > "$3" 2>&1 < /dev/null ;;
-  *)
-    echo "unknown backend: $1 (expected codex or deepseek)" >&2
-    exit 2
-    ;;
+  *) echo "unknown backend: $1 (expected codex or deepseek)" >&2; exit 2 ;;
 esac
