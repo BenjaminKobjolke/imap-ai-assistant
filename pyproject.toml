@@ -18,6 +18,7 @@ dependencies = [
     "google-auth-httplib2>=0.2.0",
     "interactions-sdk",
     "sqlalchemy>=2.0",
+    "oauthlib>=4.0.1",
 ]
 
 [dependency-groups]
